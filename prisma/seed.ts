@@ -119,7 +119,19 @@ const LANGUAGES = [
   { name: "Other", code: "other", sortOrder: 21 },
 ];
 
-export async function main() {
+// ==============================================================================
+// 6. OCCUPATIONS MASTER DATA (Initial product specification seed)
+// ==============================================================================
+const OCCUPATIONS = [
+  {
+    name: "Software Engineer",
+    slug: "software-engineer",
+    employmentStatusSlug: "employed",
+    sortOrder: 1,
+  },
+];
+
+export async function seedMasterData() {
   console.log("==================================================");
   console.log("MANGLAM MATRIMONY — DATABASE MASTER DATA SEED");
   console.log("==================================================");
@@ -168,7 +180,34 @@ export async function main() {
   }
   console.log(`✓ Seeded ${EMPLOYMENT_STATUSES.length} employment statuses`);
 
-  // 5. Seed Languages
+  // 5. Seed Occupations
+  console.log("[SEEDING] Occupations...");
+  for (const occ of OCCUPATIONS) {
+    const parentStatus = await prisma.employmentStatus.findUnique({
+      where: { slug: occ.employmentStatusSlug },
+    });
+    if (parentStatus) {
+      await prisma.occupation.upsert({
+        where: {
+          employmentStatusId_slug: {
+            employmentStatusId: parentStatus.id,
+            slug: occ.slug,
+          },
+        },
+        update: { name: occ.name, sortOrder: occ.sortOrder, isActive: true },
+        create: {
+          name: occ.name,
+          slug: occ.slug,
+          employmentStatusId: parentStatus.id,
+          sortOrder: occ.sortOrder,
+          isActive: true,
+        },
+      });
+    }
+  }
+  console.log(`✓ Seeded ${OCCUPATIONS.length} occupations`);
+
+  // 6. Seed Languages
   console.log("[SEEDING] Languages...");
   for (const lang of LANGUAGES) {
     await prisma.language.upsert({
@@ -178,12 +217,17 @@ export async function main() {
     });
   }
   console.log(`✓ Seeded ${LANGUAGES.length} languages`);
+}
 
-  // 6. Seed Discovery Candidates (Priya, Ananya, Neha, Riya, Kavya, Meera)
-  console.log("[SEEDING] Sample Discovery Candidates in PostgreSQL...");
-  const hindu = await prisma.religion.findFirst({ where: { slug: "hindu" } });
-  const brahmin = await prisma.community.findFirst({ where: { slug: "brahmin" } });
-  const hindi = await prisma.language.findFirst({ where: { code: "hi" } });
+export async function main() {
+  await seedMasterData();
+
+  // In production or default mode, do NOT touch users/profiles
+  if (process.env.SEED_SAMPLE_PROFILES === "true") {
+    console.log("[SEEDING] Sample Discovery Candidates in PostgreSQL...");
+    const hindu = await prisma.religion.findFirst({ where: { slug: "hindu" } });
+    const brahmin = await prisma.community.findFirst({ where: { slug: "brahmin" } });
+    const hindi = await prisma.language.findFirst({ where: { code: "hi" } });
 
   const CANDIDATES = [
     {
@@ -423,6 +467,9 @@ export async function main() {
   });
 
   console.log("✓ Seeded Arya Sharma (arya.sharma@example.com)");
+  } else {
+    console.log("[INFO] Skipping mock user/profile creation (SEED_SAMPLE_PROFILES is not 'true').");
+  }
 
   console.log("==================================================");
   console.log("DATABASE MASTER DATA SEED COMPLETED SUCCESSFULLY!");
