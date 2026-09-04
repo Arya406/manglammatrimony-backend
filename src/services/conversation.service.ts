@@ -1,5 +1,45 @@
 import { prisma } from "../config/database";
-import { UserStatus } from "@prisma/client";
+import { UserStatus, Prisma, Message } from "@prisma/client";
+
+type ConversationListItem = Prisma.ConversationGetPayload<{
+  include: {
+    userOne: {
+      include: {
+        profile: {
+          include: {
+            personalDetails: true;
+            photos: {
+              where: { moderationStatus: "APPROVED" };
+              orderBy: { sortOrder: "asc" };
+              take: 1;
+            };
+          };
+        };
+      };
+    };
+    userTwo: {
+      include: {
+        profile: {
+          include: {
+            personalDetails: true;
+            photos: {
+              where: { moderationStatus: "APPROVED" };
+              orderBy: { sortOrder: "asc" };
+              take: 1;
+            };
+          };
+        };
+      };
+    };
+    messages: {
+      orderBy: { createdAt: "desc" };
+      take: 1;
+    };
+    participants: {
+      where: { userId: string };
+    };
+  };
+}>;
 
 export class ConversationService {
   /**
@@ -65,7 +105,7 @@ export class ConversationService {
 
     // Format conversations with partner details and unread indicator
     const formatted = await Promise.all(
-      conversations.map(async (conv) => {
+      conversations.map(async (conv: ConversationListItem) => {
         const partnerUser = conv.userOneId === userId ? conv.userTwo : conv.userOne;
         const profile = partnerUser?.profile;
         const details = profile?.personalDetails;
@@ -253,7 +293,7 @@ export class ConversationService {
 
     const take = Math.min(50, Math.max(1, limit));
 
-    let whereClause: any = { conversationId };
+    let whereClause: Prisma.MessageWhereInput = { conversationId };
     if (beforeCursor) {
       const cursorMessage = await prisma.message.findUnique({
         where: { id: beforeCursor },
@@ -292,7 +332,7 @@ export class ConversationService {
       data: { lastReadAt: new Date() },
     });
 
-    const formattedMessages = messages.map((m) => ({
+    const formattedMessages = messages.map((m: Message) => ({
       id: m.id,
       senderUserId: m.senderUserId,
       isOwn: m.senderUserId === userId,
@@ -389,7 +429,7 @@ export class ConversationService {
     }
 
     // Create Message + update conversation.updatedAt in atomic transaction
-    const message = await prisma.$transaction(async (tx) => {
+    const message = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const createdMessage = await tx.message.create({
         data: {
           conversationId,

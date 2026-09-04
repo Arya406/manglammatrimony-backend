@@ -37,8 +37,8 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health Check Endpoint
-app.get("/api/health", (_req: Request, res: Response) => {
+// Health Check Endpoints
+app.get(["/health", "/api/health"], (_req: Request, res: Response) => {
   res.status(200).json({
     status: "healthy",
     service: "manglammatrimony-backend",
