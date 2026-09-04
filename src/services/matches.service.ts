@@ -1,6 +1,29 @@
 import { prisma } from "../config/database";
-import { ProfileStatus, UserStatus } from "@prisma/client";
+import { ProfileStatus, UserStatus, Prisma } from "@prisma/client";
 import { favouriteRepository } from "../repositories/favourite.repository";
+
+type CandidateProfilePayload = Prisma.ProfileGetPayload<{
+  include: {
+    personalDetails: true;
+    religion: {
+      include: {
+        religion: true;
+        community: true;
+      };
+    };
+    education: {
+      include: {
+        education: true;
+      };
+    };
+    career: {
+      include: {
+        occupation: true;
+      };
+    };
+    photos: true;
+  };
+}>;
 
 export interface DiscoveryPagination {
   page: number;
@@ -107,7 +130,7 @@ export class MatchesService {
       }
 
       if (pref.religions && pref.religions.length > 0) {
-        const religionIds = pref.religions.map((r) => r.religionId);
+        const religionIds = pref.religions.map((r: { religionId: string }) => r.religionId);
         conditions.push({ religion: { religionId: { in: religionIds } } });
       }
 
@@ -154,14 +177,14 @@ export class MatchesService {
     ]);
 
     // Batch query favourite status for all candidate profiles to prevent N+1 queries
-    const candidateProfileIds = profiles.map((p) => p.id);
+    const candidateProfileIds = profiles.map((p: CandidateProfilePayload) => p.id);
     const favouritedSet = await favouriteRepository.getFavouritedProfileIds(
       currentUserId,
       candidateProfileIds
     );
 
     // Format profiles for frontend ProfileCard consumption
-    const formattedProfiles: FormattedDiscoveryProfile[] = profiles.map((p) =>
+    const formattedProfiles: FormattedDiscoveryProfile[] = profiles.map((p: CandidateProfilePayload) =>
       formatDiscoveryProfile(p, favouritedSet.has(p.id))
     );
 

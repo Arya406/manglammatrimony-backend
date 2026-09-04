@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { profileController } from "../controllers/profile.controller";
 import { photoController } from "../controllers/photo.controller";
 import { partnerPreferenceController } from "../controllers/partner-preference.controller";
@@ -86,9 +86,9 @@ profileRouter.get(
 profileRouter.post("/submit", profileController.submitProfile);
 
 // 9. Persistent Favourites & Likes Routes (Requires ACTIVE profile)
-profileRouter.post("/favourites/:profileId", requireActiveProfile, (req, res) => favouriteController.addFavourite(req, res));
-profileRouter.delete("/favourites/:profileId", requireActiveProfile, (req, res) => favouriteController.removeFavourite(req, res));
-profileRouter.get("/favourites", requireActiveProfile, (req, res) => favouriteController.getFavourites(req, res));
-profileRouter.get("/favourites/status/:profileId", requireActiveProfile, (req, res) => favouriteController.getFavouriteStatus(req, res));
-profileRouter.get("/likes/received", requireActiveProfile, (req, res) => favouriteController.getReceivedLikes(req, res));
-profileRouter.get("/likes/received/count", requireActiveProfile, (req, res) => favouriteController.getReceivedLikesCount(req, res));
+profileRouter.post("/favourites/:profileId", requireActiveProfile, (req: Request, res: Response) => favouriteController.addFavourite(req, res));
+profileRouter.delete("/favourites/:profileId", requireActiveProfile, (req: Request, res: Response) => favouriteController.removeFavourite(req, res));
+profileRouter.get("/favourites", requireActiveProfile, (req: Request, res: Response) => favouriteController.getFavourites(req, res));
+profileRouter.get("/favourites/status/:profileId", requireActiveProfile, (req: Request, res: Response) => favouriteController.getFavouriteStatus(req, res));
+profileRouter.get("/likes/received", requireActiveProfile, (req: Request, res: Response) => favouriteController.getReceivedLikes(req, res));
+profileRouter.get("/likes/received/count", requireActiveProfile, (req: Request, res: Response) => favouriteController.getReceivedLikesCount(req, res));

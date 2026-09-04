@@ -1,5 +1,59 @@
 import { prisma } from "../config/database";
-import { MessageRequestStatus, NotificationType, UserStatus } from "@prisma/client";
+import { MessageRequestStatus, NotificationType, UserStatus, MessageRequest, Prisma } from "@prisma/client";
+
+type IncomingMessageRequestItem = Prisma.MessageRequestGetPayload<{
+  include: {
+    sender: {
+      include: {
+        profile: {
+          include: {
+            personalDetails: true;
+            religion: {
+              include: {
+                religion: true;
+                community: true;
+              };
+            };
+            education: {
+              include: {
+                education: true;
+              };
+            };
+            career: {
+              include: {
+                occupation: true;
+              };
+            };
+            photos: {
+              where: { moderationStatus: "APPROVED" };
+              orderBy: { sortOrder: "asc" };
+              take: 1;
+            };
+          };
+        };
+      };
+    };
+  };
+}>;
+
+type SentMessageRequestItem = Prisma.MessageRequestGetPayload<{
+  include: {
+    receiver: {
+      include: {
+        profile: {
+          include: {
+            personalDetails: true;
+            photos: {
+              where: { moderationStatus: "APPROVED" };
+              orderBy: { sortOrder: "asc" };
+              take: 1;
+            };
+          };
+        };
+      };
+    };
+  };
+}>;
 
 export class MessageRequestService {
   /**
@@ -124,7 +178,7 @@ export class MessageRequestService {
       orderBy: { createdAt: "desc" },
     });
 
-    const activePending = existingRequests.find((r) => r.status === MessageRequestStatus.PENDING);
+    const activePending = existingRequests.find((r: MessageRequest) => r.status === MessageRequestStatus.PENDING);
     if (activePending) {
       if (activePending.senderUserId === senderUserId) {
         return {
@@ -152,7 +206,7 @@ export class MessageRequestService {
     }
 
     // Check if already accepted
-    const acceptedRequest = existingRequests.find((r) => r.status === MessageRequestStatus.ACCEPTED);
+    const acceptedRequest = existingRequests.find((r: MessageRequest) => r.status === MessageRequestStatus.ACCEPTED);
     if (acceptedRequest) {
       const userOneId = senderUserId < receiverUserId ? senderUserId : receiverUserId;
       const userTwoId = senderUserId < receiverUserId ? receiverUserId : senderUserId;
@@ -175,7 +229,7 @@ export class MessageRequestService {
     }
 
     // Check if declined recently (anti-spam 24-hour cooldown rule)
-    const recentDeclined = existingRequests.find((r) => r.status === MessageRequestStatus.DECLINED);
+    const recentDeclined = existingRequests.find((r: MessageRequest) => r.status === MessageRequestStatus.DECLINED);
     if (recentDeclined && recentDeclined.respondedAt) {
       const hoursSinceDecline =
         (Date.now() - new Date(recentDeclined.respondedAt).getTime()) / (1000 * 60 * 60);
@@ -202,7 +256,7 @@ export class MessageRequestService {
     const senderName =
       sender.profile?.personalDetails?.firstName || "A Manglam Matrimony member";
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const newRequest = await tx.messageRequest.create({
         data: {
           senderUserId,
@@ -280,7 +334,7 @@ export class MessageRequestService {
       }),
     ]);
 
-    const formattedRequests = requests.map((req) => {
+    const formattedRequests = requests.map((req: IncomingMessageRequestItem) => {
       const profile = req.sender.profile;
       const details = profile?.personalDetails;
       const primaryPhoto = profile?.photos?.[0];
@@ -359,7 +413,7 @@ export class MessageRequestService {
       }),
     ]);
 
-    const formatted = requests.map((req) => {
+    const formatted = requests.map((req: SentMessageRequestItem) => {
       const profile = req.receiver.profile;
       const details = profile?.personalDetails;
       const primaryPhoto = profile?.photos?.[0];
@@ -480,7 +534,7 @@ export class MessageRequestService {
             education: senderProfile?.education?.education?.name || senderProfile?.education?.institutionName,
             occupation: senderProfile?.career?.occupation?.name || senderProfile?.career?.companyName,
             incomeRange: senderProfile?.career?.annualIncomeRange,
-            photos: senderProfile?.photos?.map((p) => ({
+            photos: senderProfile?.photos?.map((p: { id: string; photoType: string }) => ({
               url: `/api/profile/photos/${p.id}/file`,
               isPrimary: p.photoType === "PRIMARY",
             })),
@@ -542,7 +596,7 @@ export class MessageRequestService {
     const userTwoId = senderUserId < receiverUserId ? receiverUserId : senderUserId;
 
     // Execute atomic transaction
-    const transactionResult = await prisma.$transaction(async (tx) => {
+    const transactionResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Update Request status
       const updatedRequest = await tx.messageRequest.update({
         where: { id: requestId },
@@ -645,7 +699,7 @@ export class MessageRequestService {
       };
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const decl = await tx.messageRequest.update({
         where: { id: requestId },
         data: {
@@ -729,7 +783,7 @@ export class MessageRequestService {
       orderBy: { createdAt: "desc" },
     });
 
-    const activePending = existing.find((r) => r.status === MessageRequestStatus.PENDING);
+    const activePending = existing.find((r: MessageRequest) => r.status === MessageRequestStatus.PENDING);
     if (activePending) {
       return {
         success: true,
@@ -741,7 +795,7 @@ export class MessageRequestService {
       };
     }
 
-    const accepted = existing.find((r) => r.status === MessageRequestStatus.ACCEPTED);
+    const accepted = existing.find((r: MessageRequest) => r.status === MessageRequestStatus.ACCEPTED);
     if (accepted) {
       const userOneId = currentUserId < targetUserId ? currentUserId : targetUserId;
       const userTwoId = currentUserId < targetUserId ? targetUserId : currentUserId;
@@ -761,7 +815,7 @@ export class MessageRequestService {
       };
     }
 
-    const declined = existing.find((r) => r.status === MessageRequestStatus.DECLINED);
+    const declined = existing.find((r: MessageRequest) => r.status === MessageRequestStatus.DECLINED);
     if (declined) {
       return {
         success: true,
