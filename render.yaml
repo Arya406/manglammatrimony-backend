@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: manglammatrimony-backend
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm run db:deploy && npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        value: https://manglammatrimony-frontend.vercel.app,http://localhost:3000
+      - key: JWT_EXPIRY
+        value: 7d
+      - key: OTP_EXPIRY_SECONDS
+        value: "600"
+      - key: OTP_RESEND_COOLDOWN_SECONDS
+        value: "60"
+      - key: OTP_MAX_ATTEMPTS
+        value: "5"
+      - key: OTP_PROVIDER
+        value: resend
+      - key: DEV_PHOTO_APPROVAL_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false

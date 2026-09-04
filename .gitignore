@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Output
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local storage and test screenshots
+storage/
+screenshots/
+screenshots_fav/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
