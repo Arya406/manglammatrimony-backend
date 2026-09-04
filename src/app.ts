@@ -17,22 +17,34 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
-      if (
-        config.clientOrigins.includes(origin) ||
-        config.nodeEnv !== "production"
-      ) {
-        return callback(null, true);
-      }
-      return callback(new Error("CORS policy violation: Origin not allowed"));
-    },
-    credentials: true,
-  })
-);
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. mobile apps, curl, Postman, same-origin)
+    if (!origin) return callback(null, true);
+
+    const normalizedOrigin = origin.replace(/\/+$/, "");
+
+    const isAllowed =
+      config.nodeEnv !== "production" ||
+      config.clientOrigins.some(
+        (allowed) => allowed === "*" || allowed.replace(/\/+$/, "") === normalizedOrigin
+      ) ||
+      /^https:\/\/.*\.vercel\.app$/.test(normalizedOrigin) ||
+      /^http:\/\/localhost(:\d+)?$/.test(normalizedOrigin);
+
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
