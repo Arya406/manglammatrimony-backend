@@ -11,7 +11,7 @@ build/
 !.env.example
 
 # Local storage and test screenshots
-storage/
+/storage/
 screenshots/
 screenshots_fav/
 

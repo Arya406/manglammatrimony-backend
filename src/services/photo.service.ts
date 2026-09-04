@@ -170,7 +170,7 @@ export class PhotoService {
     } catch (dbError) {
       console.error("[DATABASE PHOTO CREATION ERROR]:", dbError);
       // Clean up orphaned storage file immediately
-      await this.storage.delete(storedMetadata.storageKey).catch((e) =>
+      await this.storage.delete(storedMetadata.storageKey).catch((e: unknown) =>
         console.warn("[CLEANUP WARNING]:", e)
       );
       return {
@@ -271,7 +271,7 @@ export class PhotoService {
     }
 
     // Clean up physical file from storage provider
-    await this.storage.delete(result.deletedPhoto.storageKey).catch((err) => {
+    await this.storage.delete(result.deletedPhoto.storageKey).catch((err: unknown) => {
       console.warn(`[STORAGE DELETE WARNING]: Failed to remove file ${result.deletedPhoto.storageKey}:`, err);
     });
 
