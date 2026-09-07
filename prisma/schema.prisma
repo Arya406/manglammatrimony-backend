@@ -122,6 +122,7 @@ model User {
 
   @@index([phone])
   @@index([email])
+  @@index([status])
   @@map("users")
 }
 
@@ -151,6 +152,7 @@ model Profile {
   @@index([userId])
   @@index([profileStatus])
   @@index([profileCreatedFor])
+  @@index([profileStatus, completionPercentage])
   @@map("profiles")
 }
 
@@ -277,6 +279,7 @@ model ProfilePhoto {
   id                String            @id @default(uuid()) @map("id")
   profileId         String            @map("profile_id")
   storageKey        String            @map("storage_key")
+  storageProvider   String            @default("local") @map("storage_provider")
   originalFileName  String            @map("original_file_name")
   mimeType          String            @map("mime_type")
   fileSize          Int               @map("file_size")
@@ -294,6 +297,7 @@ model ProfilePhoto {
   @@index([profileId])
   @@index([moderationStatus])
   @@index([photoType])
+  @@index([profileId, moderationStatus, sortOrder])
   @@map("profile_photos")
 }
 
@@ -476,6 +480,7 @@ model Community {
   profileReligions    ProfileReligion[]
   partnerPreferences  PartnerPreferenceCommunity[]
 
+  @@index([religionId])
   @@map("communities")
 }
 
@@ -512,6 +517,7 @@ model Caste {
   profileReligions    ProfileReligion[]
   partnerPreferences  PartnerPreferenceCaste[]
 
+  @@index([communityId])
   @@map("castes")
 }
 
@@ -546,6 +552,7 @@ model Gotra {
   profileReligions    ProfileReligion[]
   partnerPreferences  PartnerPreferenceGotra[]
 
+  @@index([communityId])
   @@map("gotras")
 }
 

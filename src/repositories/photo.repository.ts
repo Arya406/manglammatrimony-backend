@@ -9,6 +9,7 @@ import { prisma as defaultPrisma } from "../config/database";
 export interface CreatePhotoInput {
   profileId: string;
   storageKey: string;
+  storageProvider?: string;
   originalFileName: string;
   mimeType: string;
   fileSize: number;
@@ -16,6 +17,7 @@ export interface CreatePhotoInput {
   height?: number | null;
   photoType: PhotoType;
   sortOrder: number;
+  moderationStatus?: ModerationStatus;
 }
 
 export class PhotoRepository {
@@ -79,13 +81,14 @@ export class PhotoRepository {
         data: {
           profileId: input.profileId,
           storageKey: input.storageKey,
+          storageProvider: input.storageProvider || "local",
           originalFileName: input.originalFileName,
           mimeType: input.mimeType,
           fileSize: input.fileSize,
           width: input.width ?? null,
           height: input.height ?? null,
           photoType: input.photoType,
-          moderationStatus: ModerationStatus.PENDING,
+          moderationStatus: input.moderationStatus ?? ModerationStatus.APPROVED,
           sortOrder: input.sortOrder,
         },
       });

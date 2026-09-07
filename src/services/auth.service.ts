@@ -64,6 +64,7 @@ export class AuthService {
         maskedIdentifier: session.maskedIdentifier,
         resendCooldownSeconds: config.otp.resendCooldownSeconds,
         expiresInSeconds: config.otp.expirySeconds,
+        ...(config.devDummyOtpEnabled ? { debugOtp: plainOtp } : {}),
       },
     };
   }
@@ -218,6 +219,7 @@ export class AuthService {
         maskedIdentifier: session.maskedIdentifier,
         resendCooldownSeconds: config.otp.resendCooldownSeconds,
         expiresInSeconds: config.otp.expirySeconds,
+        ...(config.devDummyOtpEnabled ? { debugOtp: plainOtp } : {}),
       },
     };
   }
@@ -299,6 +301,7 @@ export class AuthService {
         maskedIdentifier: session.maskedIdentifier,
         resendCooldownSeconds: config.otp.resendCooldownSeconds,
         expiresInSeconds: config.otp.expirySeconds,
+        ...(config.devDummyOtpEnabled ? { debugOtp: plainOtp } : {}),
       },
     };
   }

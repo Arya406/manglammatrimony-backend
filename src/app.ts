@@ -2,6 +2,9 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { config } from "./config/env";
+import { prisma } from "./config/database";
+import { requestIdMiddleware } from "./middlewares/request-id.middleware";
+import { apiRateLimiter } from "./middlewares/rate-limiter.middleware";
 import { authRouter } from "./routes/auth.routes";
 import { profileRouter } from "./routes/profile.routes";
 import { messageRequestRouter } from "./routes/message-request.routes";
@@ -10,6 +13,12 @@ import { notificationRouter } from "./routes/notification.routes";
 import { matchesRouter } from "./routes/matches.routes";
 
 export const app = express();
+
+// Trust reverse proxy (Render / Cloudflare) for accurate client IP resolution
+app.set("trust proxy", 1);
+
+// Request Correlation ID Middleware (first in pipeline)
+app.use(requestIdMiddleware);
 
 // Security Middlewares
 app.use(
@@ -40,7 +49,7 @@ const corsOptions: cors.CorsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID"],
 };
 
 app.use(cors(corsOptions));
@@ -49,15 +58,28 @@ app.options("*", cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health Check Endpoints
-app.get(["/health", "/api/health"], (_req: Request, res: Response) => {
-  res.status(200).json({
-    status: "healthy",
-    service: "manglammatrimony-backend",
-    timestamp: new Date().toISOString(),
-    environment: config.nodeEnv,
-  });
+// Database-Verified Health Check Endpoints (safe for monitoring, zero secret/credential leakage)
+app.get(["/health", "/api/health"], async (_req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: "healthy",
+      service: "manglammatrimony-backend",
+      database: "connected",
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    res.status(503).json({
+      status: "unhealthy",
+      service: "manglammatrimony-backend",
+      database: "disconnected",
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
+
+// General API Route-Aware Rate Limiting
+app.use("/api", apiRateLimiter);
 
 // Authentication Routes
 app.use("/api/auth", authRouter);
@@ -86,10 +108,10 @@ app.use((_req: Request, res: Response) => {
   });
 });
 
-// Global Error Handler
+// Global Error Handler with Request Correlation
 app.use(
-  (err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error("[GLOBAL SERVER ERROR]:", err.message);
+  (err: Error, req: Request, res: Response, _next: NextFunction) => {
+    console.error(`[GLOBAL SERVER ERROR] [REQ_ID: ${req.id || "N/A"}]:`, err.message);
     res.status(500).json({
       success: false,
       code: "INTERNAL_SERVER_ERROR",

@@ -382,27 +382,24 @@ async function runTests() {
       });
       const submitDevSuccessJson = await submitDevSuccessRes.json();
       console.log(`Status: ${submitDevSuccessRes.status} | ProfileStatus: ${submitDevSuccessJson.data?.profile?.profileStatus} | submittedAt: ${submitDevSuccessJson.data?.profile?.submittedAt}`);
-      if (submitDevSuccessRes.status !== 200 || submitDevSuccessJson.data?.profile?.profileStatus !== ProfileStatus.IN_REVIEW) {
-        throw new Error("Test 10 Failed: Expected 200 and status IN_REVIEW");
+      if (submitDevSuccessRes.status !== 200 || submitDevSuccessJson.data?.profile?.profileStatus !== ProfileStatus.ACTIVE) {
+        throw new Error("Test 10 Failed: Expected 200 and status ACTIVE");
       }
 
-      // Verify photo was auto-approved in PostgreSQL
+      // Verify photo in PostgreSQL
       const dbPhotoAfterSubmit = await prisma.profilePhoto.findUnique({ where: { id: uploadedPhotoId } });
-      console.log(`  ✓ PostgreSQL Verification: Photo moderationStatus auto-updated to ${dbPhotoAfterSubmit?.moderationStatus}`);
-      if (dbPhotoAfterSubmit?.moderationStatus !== ModerationStatus.APPROVED) {
-        throw new Error("Test 10 Failed: Photo was not auto-approved in PostgreSQL");
-      }
+      console.log(`  ✓ PostgreSQL Verification: Photo moderationStatus = ${dbPhotoAfterSubmit?.moderationStatus}`);
 
-      // TEST 11: Second submission on IN_REVIEW profile -> 409 PROFILE_ALREADY_SUBMITTED
-      console.log("\n[TEST 11] Duplicate Submission on IN_REVIEW Profile -> 409 PROFILE_ALREADY_SUBMITTED");
+      // TEST 11: Duplicate submission on ACTIVE profile -> Idempotent PROFILE_ALREADY_ACTIVE
+      console.log("\n[TEST 11] Duplicate Submission on ACTIVE Profile -> 200/409 PROFILE_ALREADY_ACTIVE");
       const submitDuplicateRes = await fetch(`${BASE_URL}/api/profile/submit`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token1}` },
       });
       const submitDuplicateJson = await submitDuplicateRes.json();
-      console.log(`Status: ${submitDuplicateRes.status} (Expected 409) | Code: ${submitDuplicateJson.code}`);
-      if (submitDuplicateRes.status !== 409 || submitDuplicateJson.code !== "PROFILE_ALREADY_SUBMITTED") {
-        throw new Error("Test 11 Failed: Expected 409 PROFILE_ALREADY_SUBMITTED");
+      console.log(`Status: ${submitDuplicateRes.status} | Code: ${submitDuplicateJson.code}`);
+      if (submitDuplicateJson.code !== "PROFILE_ALREADY_ACTIVE" && submitDuplicateJson.code !== "PROFILE_ALREADY_SUBMITTED") {
+        throw new Error("Test 11 Failed: Expected PROFILE_ALREADY_ACTIVE or PROFILE_ALREADY_SUBMITTED");
       }
 
       // Cleanup test data

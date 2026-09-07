@@ -131,96 +131,15 @@ const OCCUPATIONS = [
   },
 ];
 
+import { seedAllMasterData } from "../src/services/master-data-seed.service";
+
 export async function seedMasterData() {
-  console.log("==================================================");
-  console.log("MANGLAM MATRIMONY — DATABASE MASTER DATA SEED");
-  console.log("==================================================");
-
-  // 1. Seed Religions
-  console.log("[SEEDING] Religions...");
-  for (const rel of RELIGIONS) {
-    await prisma.religion.upsert({
-      where: { slug: rel.slug },
-      update: { name: rel.name, sortOrder: rel.sortOrder, isActive: true },
-      create: { name: rel.name, slug: rel.slug, sortOrder: rel.sortOrder, isActive: true },
-    });
-  }
-  console.log(`✓ Seeded ${RELIGIONS.length} religions`);
-
-  // 2. Seed Communities
-  console.log("[SEEDING] Communities...");
-  for (const com of COMMUNITIES) {
-    await prisma.community.upsert({
-      where: { slug: com.slug },
-      update: { name: com.name, sortOrder: com.sortOrder, isActive: true },
-      create: { name: com.name, slug: com.slug, sortOrder: com.sortOrder, isActive: true },
-    });
-  }
-  console.log(`✓ Seeded ${COMMUNITIES.length} communities`);
-
-  // 3. Seed Educations
-  console.log("[SEEDING] Educations...");
-  for (const edu of EDUCATIONS) {
-    await prisma.education.upsert({
-      where: { slug: edu.slug },
-      update: { name: edu.name, sortOrder: edu.sortOrder, isActive: true },
-      create: { name: edu.name, slug: edu.slug, sortOrder: edu.sortOrder, isActive: true },
-    });
-  }
-  console.log(`✓ Seeded ${EDUCATIONS.length} educations`);
-
-  // 4. Seed Employment Statuses
-  console.log("[SEEDING] Employment Statuses...");
-  for (const emp of EMPLOYMENT_STATUSES) {
-    await prisma.employmentStatus.upsert({
-      where: { slug: emp.slug },
-      update: { name: emp.name, sortOrder: emp.sortOrder, isActive: true },
-      create: { name: emp.name, slug: emp.slug, sortOrder: emp.sortOrder, isActive: true },
-    });
-  }
-  console.log(`✓ Seeded ${EMPLOYMENT_STATUSES.length} employment statuses`);
-
-  // 5. Seed Occupations
-  console.log("[SEEDING] Occupations...");
-  for (const occ of OCCUPATIONS) {
-    const parentStatus = await prisma.employmentStatus.findUnique({
-      where: { slug: occ.employmentStatusSlug },
-    });
-    if (parentStatus) {
-      await prisma.occupation.upsert({
-        where: {
-          employmentStatusId_slug: {
-            employmentStatusId: parentStatus.id,
-            slug: occ.slug,
-          },
-        },
-        update: { name: occ.name, sortOrder: occ.sortOrder, isActive: true },
-        create: {
-          name: occ.name,
-          slug: occ.slug,
-          employmentStatusId: parentStatus.id,
-          sortOrder: occ.sortOrder,
-          isActive: true,
-        },
-      });
-    }
-  }
-  console.log(`✓ Seeded ${OCCUPATIONS.length} occupations`);
-
-  // 6. Seed Languages
-  console.log("[SEEDING] Languages...");
-  for (const lang of LANGUAGES) {
-    await prisma.language.upsert({
-      where: { code: lang.code },
-      update: { name: lang.name, sortOrder: lang.sortOrder, isActive: true },
-      create: { name: lang.name, code: lang.code, sortOrder: lang.sortOrder, isActive: true },
-    });
-  }
-  console.log(`✓ Seeded ${LANGUAGES.length} languages`);
+  await seedAllMasterData(prisma);
 }
 
 export async function main() {
   await seedMasterData();
+
 
   // In production or default mode, do NOT touch users/profiles
   if (process.env.SEED_SAMPLE_PROFILES === "true") {

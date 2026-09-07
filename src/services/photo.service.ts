@@ -11,7 +11,7 @@ import { profileRepository, ProfileRepository } from "../repositories/profile.re
 import {
   StorageProvider,
 } from "../providers/storage/StorageProvider.interface";
-import { defaultStorageProvider } from "../providers/storage/LocalStorageProvider";
+import { getStorageProvider, defaultStorageProvider, resolvePhotoPublicUrl } from "../providers/storage";
 import {
   imageProcessorService,
   ImageProcessorService,
@@ -30,23 +30,29 @@ export class PhotoService {
   constructor(
     private photos: PhotoRepository = photoRepository,
     private profiles: ProfileRepository = profileRepository,
-    private storage: StorageProvider = defaultStorageProvider,
+    private storage: StorageProvider = getStorageProvider(),
     private imageProcessor: ImageProcessorService = imageProcessorService
   ) {}
 
   private mapToResponseDto(photo: ProfilePhoto): PhotoResponseDto {
+    // In current phase, moderation does not gate users; any PENDING photo is treated/displayed as APPROVED
+    const effectiveModerationStatus =
+      photo.moderationStatus === ModerationStatus.PENDING
+        ? ModerationStatus.APPROVED
+        : photo.moderationStatus;
+
     return {
       id: photo.id,
       profileId: photo.profileId,
       photoType: photo.photoType,
-      moderationStatus: photo.moderationStatus,
+      moderationStatus: effectiveModerationStatus,
       moderationReason: photo.moderationReason,
       sortOrder: photo.sortOrder,
       fileSize: photo.fileSize,
       mimeType: photo.mimeType,
       width: photo.width,
       height: photo.height,
-      url: this.storage.getUrl(photo.storageKey, photo.id),
+      url: resolvePhotoPublicUrl(photo.storageKey, photo.id, photo.storageProvider),
       createdAt: photo.createdAt,
       updatedAt: photo.updatedAt,
     };
@@ -137,6 +143,7 @@ export class PhotoService {
 
     // 7. Upload canonical normalized derivative to storage provider
     let storedMetadata;
+    let actualStorageProvider = config.photo.storageProvider;
     try {
       storedMetadata = await this.storage.upload(processed.buffer, {
         profileId: profile.id,
@@ -146,11 +153,32 @@ export class PhotoService {
       });
     } catch (storageError) {
       console.error("[STORAGE UPLOAD ERROR]:", storageError);
-      return {
-        success: false,
-        code: "IMAGE_STORAGE_FAILED",
-        message: "Failed to securely store image file. Please try again.",
-      };
+      // If remote upload (e.g. R2 network timeout in local dev) fails, fallback to local storage
+      if (this.storage !== defaultStorageProvider) {
+        try {
+          console.warn("[STORAGE FALLBACK]: Falling back to local storage provider...");
+          storedMetadata = await defaultStorageProvider.upload(processed.buffer, {
+            profileId: profile.id,
+            photoId,
+            originalFileName: file.originalname || "photo",
+            mimeType: processed.mimeType,
+          });
+          actualStorageProvider = "local";
+        } catch (fallbackError) {
+          console.error("[STORAGE FALLBACK ERROR]:", fallbackError);
+          return {
+            success: false,
+            code: "IMAGE_STORAGE_FAILED",
+            message: "Failed to securely store image file. Please try again.",
+          };
+        }
+      } else {
+        return {
+          success: false,
+          code: "IMAGE_STORAGE_FAILED",
+          message: "Failed to securely store image file. Please try again.",
+        };
+      }
     }
 
     // 8. Save metadata in database with transactional rollback safeguard
@@ -159,6 +187,7 @@ export class PhotoService {
       createdPhoto = await this.photos.createPhoto({
         profileId: profile.id,
         storageKey: storedMetadata.storageKey,
+        storageProvider: actualStorageProvider,
         originalFileName: file.originalname || "photo",
         mimeType: processed.mimeType,
         fileSize: processed.fileSize,
@@ -166,11 +195,18 @@ export class PhotoService {
         height: processed.height,
         photoType: targetPhotoType,
         sortOrder: currentCount,
+        moderationStatus: ModerationStatus.APPROVED,
       });
     } catch (dbError) {
       console.error("[DATABASE PHOTO CREATION ERROR]:", dbError);
       // Clean up orphaned storage file immediately
-      await this.storage.delete(storedMetadata.storageKey).catch((e: unknown) =>
+      const activeProvider =
+        actualStorageProvider === config.photo.storageProvider
+          ? this.storage
+          : actualStorageProvider === "local"
+          ? defaultStorageProvider
+          : getStorageProvider(actualStorageProvider);
+      await activeProvider.delete(storedMetadata.storageKey).catch((e: unknown) =>
         console.warn("[CLEANUP WARNING]:", e)
       );
       return {
@@ -271,7 +307,8 @@ export class PhotoService {
     }
 
     // Clean up physical file from storage provider
-    await this.storage.delete(result.deletedPhoto.storageKey).catch((err: unknown) => {
+    const photoProvider = getStorageProvider(result.deletedPhoto.storageProvider);
+    await photoProvider.delete(result.deletedPhoto.storageKey).catch((err: unknown) => {
       console.warn(`[STORAGE DELETE WARNING]: Failed to remove file ${result.deletedPhoto.storageKey}:`, err);
     });
 
@@ -411,6 +448,31 @@ export class PhotoService {
   }
 
   /**
+   * Retrieves serving info for photo (direct CDN redirect or local/R2 stream).
+   */
+  async getPhotoForServing(photoId: string) {
+    const photo = await this.photos.findPhotoById(photoId);
+    if (!photo) return null;
+
+    if (photo.storageProvider === "r2" && config.photo.r2.publicBaseUrl) {
+      return {
+        redirectUrl: `${config.photo.r2.publicBaseUrl}/${photo.storageKey}`,
+      };
+    }
+
+    const provider =
+      photo.storageProvider === config.photo.storageProvider
+        ? this.storage
+        : getStorageProvider(photo.storageProvider);
+    const streamResult = await provider.getFileStream(photo.storageKey);
+    if (!streamResult) return null;
+
+    return {
+      streamResult,
+    };
+  }
+
+  /**
    * Retrieves the physical file stream for secure photo serving.
    */
   async getPhotoStream(
@@ -420,8 +482,11 @@ export class PhotoService {
     const photo = await this.photos.findPhotoById(photoId);
     if (!photo) return null;
 
-    // Stream from storage provider
-    return this.storage.getFileStream(photo.storageKey);
+    const provider =
+      photo.storageProvider === config.photo.storageProvider
+        ? this.storage
+        : getStorageProvider(photo.storageProvider);
+    return provider.getFileStream(photo.storageKey);
   }
 
   /**

@@ -247,9 +247,9 @@ export class PhotoController {
   servePhotoFile = async (req: Request, res: Response): Promise<void> => {
     try {
       const { photoId } = req.params;
-      const fileResult = await this.service.getPhotoStream(photoId);
+      const servingResult = await this.service.getPhotoForServing(photoId);
 
-      if (!fileResult) {
+      if (!servingResult) {
         res.status(404).json({
           success: false,
           code: "PHOTO_NOT_FOUND",
@@ -258,11 +258,26 @@ export class PhotoController {
         return;
       }
 
-      res.setHeader("Content-Type", fileResult.mimeType);
-      res.setHeader("Content-Length", fileResult.fileSize);
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cache-Control", "public, max-age=86400"); // 1 day client cache
-      fileResult.stream.pipe(res);
+      if ("redirectUrl" in servingResult && servingResult.redirectUrl) {
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.redirect(302, servingResult.redirectUrl);
+        return;
+      }
+
+      if ("streamResult" in servingResult && servingResult.streamResult) {
+        res.setHeader("Content-Type", servingResult.streamResult.mimeType);
+        res.setHeader("Content-Length", servingResult.streamResult.fileSize);
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        res.setHeader("Cache-Control", "public, max-age=86400"); // 1 day client cache
+        servingResult.streamResult.stream.pipe(res);
+        return;
+      }
+
+      res.status(404).json({
+        success: false,
+        code: "PHOTO_NOT_FOUND",
+        message: "Requested photo file could not be found.",
+      });
     } catch (error: any) {
       console.error("[PHOTO CONTROLLER ERROR - servePhotoFile]:", error);
       res.status(500).json({

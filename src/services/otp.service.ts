@@ -5,6 +5,8 @@ import { IOtpProvider } from "../providers/otp/OtpProvider.interface";
 import { DevOtpProvider } from "../providers/otp/DevOtpProvider";
 import { emailService } from "./email.service";
 
+export const DEV_DUMMY_OTP = "123456";
+
 export class OtpService {
   private provider: IOtpProvider;
 
@@ -17,7 +19,11 @@ export class OtpService {
   }
 
   generateOtp(): string {
-    // Generate secure 6-digit numeric string
+    // Only use standard dummy OTP 123456 if explicitly enabled for local development
+    if (config.devDummyOtpEnabled) {
+      return DEV_DUMMY_OTP;
+    }
+    // Generate secure 6-digit numeric string in production
     return crypto.randomInt(100000, 1000000).toString();
   }
 
@@ -29,6 +35,10 @@ export class OtpService {
   }
 
   verifyOtpMatch(enteredOtp: string, hashedOtp: string, salt: string): boolean {
+    // Dummy OTP 123456 is strictly restricted to non-production environments with DEV_DUMMY_OTP_ENABLED=true
+    if (config.devDummyOtpEnabled && enteredOtp === DEV_DUMMY_OTP) {
+      return true;
+    }
     const computedHash = this.hashOtp(enteredOtp, salt);
     return crypto.timingSafeEqual(
       Buffer.from(computedHash, "hex"),

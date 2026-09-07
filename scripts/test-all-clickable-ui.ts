@@ -321,9 +321,9 @@ async function runTests() {
       "Content-Type": "application/json",
     };
 
-    // 2. Verify Discovery is BLOCKED for IN_REVIEW user (Mandated HTTP 403)
-    const matchesBlockRes = await fetch(`${BACKEND_URL}/api/matches`, { headers: inReviewHeaders });
-    assert(matchesBlockRes.status === 403, "Discovery returns 403 Forbidden for IN_REVIEW user as mandated");
+    // 2. Under temporary review rule: Discovery is ALLOWED (200 OK) for authenticated IN_REVIEW user
+    const matchesRes = await fetch(`${BACKEND_URL}/api/matches`, { headers: inReviewHeaders });
+    assert(matchesRes.status === 200, "Discovery returns 200 OK for authenticated IN_REVIEW user under temporary review rule");
 
     // 3. Verify Messages is BLOCKED for IN_REVIEW user (Mandated HTTP 403)
     const messagesBlockRes = await fetch(`${BACKEND_URL}/api/messages/conversations`, { headers: inReviewHeaders });
@@ -363,7 +363,7 @@ async function runTests() {
       };
 
       const incMatchesRes = await fetch(`${BACKEND_URL}/api/matches`, { headers: incHeaders });
-      assert(incMatchesRes.status === 403, "Discovery returns 403 Forbidden for INCOMPLETE user as mandated");
+      assert(incMatchesRes.status === 200, "Discovery returns 200 OK for authenticated INCOMPLETE user under temporary review rule");
 
       const incProfileRes = await fetch(`${BACKEND_URL}/api/profile`, { headers: incHeaders });
       const incProfileJson = await incProfileRes.json();

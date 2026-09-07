@@ -412,10 +412,10 @@ async function runVerification() {
     });
     assert(inReviewHelpPill, "34. IN_REVIEW user on /help sees restricted AppHeader with 'Under Review' pill");
 
-    // 3. Direct URL to /matches (MUST BE GATED and redirected to /onboarding/review)
+    // 3. Direct URL to /matches (Allowed under temporary review rule for all authenticated users)
     await pageReview.goto("http://localhost:3000/matches", { waitUntil: "networkidle0" });
     await new Promise((r) => setTimeout(r, 800));
-    assert(pageReview.url().includes("/onboarding/review"), `35. IN_REVIEW user navigating to /matches is gated and redirected to /onboarding/review (got: ${pageReview.url()})`);
+    assert(pageReview.url().includes("/matches"), `35. IN_REVIEW user navigating to /matches stays on /matches under temporary review rule (got: ${pageReview.url()})`);
 
     // 4. Direct URL to /interests (MUST BE GATED)
     await pageReview.goto("http://localhost:3000/interests", { waitUntil: "networkidle0" });

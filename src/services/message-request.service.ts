@@ -1,5 +1,6 @@
 import { prisma } from "../config/database";
 import { MessageRequestStatus, NotificationType, UserStatus, MessageRequest, Prisma } from "@prisma/client";
+import { resolvePhotoPublicUrl } from "../providers/storage";
 
 type IncomingMessageRequestItem = Prisma.MessageRequestGetPayload<{
   include: {
@@ -256,38 +257,80 @@ export class MessageRequestService {
     const senderName =
       sender.profile?.personalDetails?.firstName || "A Manglam Matrimony member";
 
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const newRequest = await tx.messageRequest.create({
-        data: {
-          senderUserId,
-          receiverUserId,
-          status: MessageRequestStatus.PENDING,
-        },
+    try {
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const newRequest = await tx.messageRequest.create({
+          data: {
+            senderUserId,
+            receiverUserId,
+            status: MessageRequestStatus.PENDING,
+          },
+        });
+
+        await tx.notification.create({
+          data: {
+            userId: receiverUserId,
+            type: NotificationType.MESSAGE_REQUEST_RECEIVED,
+            title: "New Message Request",
+            body: `${senderName} wants to connect with you.`,
+            relatedRequestId: newRequest.id,
+          },
+        });
+
+        return newRequest;
       });
 
-      await tx.notification.create({
+      return {
+        success: true,
+        statusCode: 201,
+        code: "MESSAGE_REQUEST_CREATED",
+        message: "Message request sent successfully.",
         data: {
-          userId: receiverUserId,
-          type: NotificationType.MESSAGE_REQUEST_RECEIVED,
-          title: "New Message Request",
-          body: `${senderName} wants to connect with you.`,
-          relatedRequestId: newRequest.id,
+          request: result,
+          relationshipState: "PENDING_SENT",
         },
-      });
+      };
+    } catch (err: unknown) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        // Database partial unique constraint caught concurrent duplicate pending request
+        const activePending = await prisma.messageRequest.findFirst({
+          where: {
+            OR: [
+              { senderUserId, receiverUserId },
+              { senderUserId: receiverUserId, receiverUserId: senderUserId },
+            ],
+            status: MessageRequestStatus.PENDING,
+          },
+        });
 
-      return newRequest;
-    });
-
-    return {
-      success: true,
-      statusCode: 201,
-      code: "MESSAGE_REQUEST_CREATED",
-      message: "Message request sent successfully.",
-      data: {
-        request: result,
-        relationshipState: "PENDING_SENT",
-      },
-    };
+        if (activePending) {
+          if (activePending.senderUserId === senderUserId) {
+            return {
+              success: true,
+              statusCode: 200,
+              code: "MESSAGE_REQUEST_ALREADY_PENDING",
+              message: "A message request is already pending with this profile.",
+              data: {
+                request: activePending,
+                relationshipState: "PENDING_SENT",
+              },
+            };
+          } else {
+            return {
+              success: true,
+              statusCode: 200,
+              code: "INCOMING_REQUEST_PENDING",
+              message: "This profile has already sent you a message request. Please check your inbox.",
+              data: {
+                request: activePending,
+                relationshipState: "PENDING_RECEIVED",
+              },
+            };
+          }
+        }
+      }
+      throw err;
+    }
   }
 
   /**
@@ -359,7 +402,7 @@ export class MessageRequestService {
           community: profile?.religion?.community?.name,
           education: profile?.education?.education?.name || profile?.education?.institutionName,
           occupation: profile?.career?.occupation?.name || profile?.career?.companyName,
-          photoUrl: primaryPhoto ? `/api/profile/photos/${primaryPhoto.id}/file` : null,
+          photoUrl: primaryPhoto ? resolvePhotoPublicUrl(primaryPhoto.storageKey, primaryPhoto.id, primaryPhoto.storageProvider) : null,
         },
       };
     });
@@ -427,7 +470,7 @@ export class MessageRequestService {
           userId: req.receiverUserId,
           profileId: profile?.id,
           name: details ? `${details.firstName}${details.lastName ? " " + details.lastName : ""}` : "Member",
-          photoUrl: primaryPhoto ? `/api/profile/photos/${primaryPhoto.id}/file` : null,
+          photoUrl: primaryPhoto ? resolvePhotoPublicUrl(primaryPhoto.storageKey, primaryPhoto.id, primaryPhoto.storageProvider) : null,
         },
       };
     });
@@ -534,8 +577,8 @@ export class MessageRequestService {
             education: senderProfile?.education?.education?.name || senderProfile?.education?.institutionName,
             occupation: senderProfile?.career?.occupation?.name || senderProfile?.career?.companyName,
             incomeRange: senderProfile?.career?.annualIncomeRange,
-            photos: senderProfile?.photos?.map((p: { id: string; photoType: string }) => ({
-              url: `/api/profile/photos/${p.id}/file`,
+            photos: senderProfile?.photos?.map((p: any) => ({
+              url: resolvePhotoPublicUrl(p.storageKey, p.id, p.storageProvider),
               isPrimary: p.photoType === "PRIMARY",
             })),
           },
@@ -606,19 +649,15 @@ export class MessageRequestService {
         },
       });
 
-      // 2. Find or create unique conversation
-      let conversation = await tx.conversation.findUnique({
+      // 2. Find or create unique conversation (atomic upsert)
+      const conversation = await tx.conversation.upsert({
         where: { userOneId_userTwoId: { userOneId, userTwoId } },
+        update: {},
+        create: {
+          userOneId,
+          userTwoId,
+        },
       });
-
-      if (!conversation) {
-        conversation = await tx.conversation.create({
-          data: {
-            userOneId,
-            userTwoId,
-          },
-        });
-      }
 
       // 3. Upsert participants
       await tx.conversationParticipant.upsert({

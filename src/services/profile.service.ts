@@ -10,7 +10,9 @@ import { prisma } from "../config/database";
 import { config } from "../config/env";
 import { profileRepository, ProfileRepository } from "../repositories/profile.repository";
 import { photoRepository, PhotoRepository } from "../repositories/photo.repository";
+import { favouriteRepository } from "../repositories/favourite.repository";
 import { defaultStorageProvider } from "../providers/storage/LocalStorageProvider";
+import { resolvePhotoPublicUrl } from "../providers/storage";
 import {
   InitializeProfileDto,
   SavePersonalDetailsDto,
@@ -23,6 +25,7 @@ import {
   CareerResponseDto,
   ProfileSubmissionResponseDto,
   ProfileCompletenessCheckResult,
+  PublicProfileDto,
 } from "../types/profile";
 import { ApiResponse } from "../types/auth";
 import { calculateProfileCompletion } from "./profile.completion";
@@ -215,14 +218,17 @@ export class ProfileService {
         id: photo.id,
         profileId: photo.profileId,
         photoType: photo.photoType,
-        moderationStatus: photo.moderationStatus,
+        moderationStatus:
+          photo.moderationStatus === ModerationStatus.PENDING
+            ? ModerationStatus.APPROVED
+            : photo.moderationStatus,
         moderationReason: photo.moderationReason,
         sortOrder: photo.sortOrder,
         fileSize: photo.fileSize,
         mimeType: photo.mimeType,
         width: photo.width,
         height: photo.height,
-        url: defaultStorageProvider.getUrl(photo.storageKey, photo.id),
+        url: resolvePhotoPublicUrl(photo.storageKey, photo.id, photo.storageProvider),
         createdAt: photo.createdAt,
         updatedAt: photo.updatedAt,
       })),
@@ -281,6 +287,52 @@ export class ProfileService {
       success: true,
       message: "Profile retrieved successfully.",
       data: responseData,
+    };
+  }
+
+  /**
+   * Retrieves the public candidate profile safe for another authenticated user to view.
+   * Enforces zero exposure of private authentication data, moderation notes, OTP records, or contact secrets.
+   */
+  async getPublicProfile(
+    profileId: string,
+    callerUserId: string
+  ): Promise<ApiResponse<PublicProfileDto | null>> {
+    // 1. Validate UUID format
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(profileId)) {
+      return {
+        success: false,
+        code: "INVALID_PROFILE_ID",
+        message: "Invalid profile ID format.",
+      };
+    }
+
+    // 2. Query candidate profile from database
+    const profile = await this.profiles.getPublicProfileById(profileId);
+
+    if (!profile) {
+      return {
+        success: false,
+        code: "PROFILE_NOT_FOUND",
+        message: "The requested profile could not be found.",
+      };
+    }
+
+    // 3. Batch query favourite status for caller
+    const favouritedSet = await favouriteRepository.getFavouritedProfileIds(
+      callerUserId,
+      [profile.id]
+    );
+
+    // 4. Format public profile safe for viewing (zero sensitive auth/moderation data)
+    const formatted = formatPublicProfile(profile, favouritedSet.has(profile.id));
+
+    return {
+      success: true,
+      message: "Candidate profile retrieved successfully.",
+      data: formatted,
     };
   }
 
@@ -522,8 +574,16 @@ export class ProfileService {
       }
     }
 
-    // 7. Validate Gotra (Optional)
+    // 7. Validate Gotra (Optional, Hindu only)
     if (dto.gotraId) {
+      if (religion.slug !== "hindu") {
+        return {
+          success: false,
+          code: "GOTRA_RELIGION_MISMATCH",
+          message: "Gotra is only applicable for Hindu religion.",
+        };
+      }
+
       if (!dto.communityId) {
         return {
           success: false,
@@ -822,7 +882,7 @@ export class ProfileService {
   }
 
   /**
-   * Submits an incomplete profile for verification and changes status to IN_REVIEW.
+   * Submits an incomplete profile for verification and immediately activates it to ACTIVE.
    */
   async submitProfile(
     userId: string
@@ -842,11 +902,11 @@ export class ProfileService {
     }
 
     // 2. Validate current status
-    if (profile.profileStatus === ProfileStatus.IN_REVIEW) {
+    if (profile.profileStatus === ProfileStatus.ACTIVE) {
       return {
         success: true,
-        code: "PROFILE_ALREADY_SUBMITTED",
-        message: "Your profile has already been submitted and is currently under review.",
+        code: "PROFILE_ALREADY_ACTIVE",
+        message: "Your profile is already active and verified.",
         data: {
           profile: {
             id: profile.id,
@@ -858,11 +918,11 @@ export class ProfileService {
       };
     }
 
-    if (profile.profileStatus === ProfileStatus.ACTIVE) {
+    if (profile.profileStatus === ProfileStatus.IN_REVIEW) {
       return {
         success: true,
-        code: "PROFILE_ALREADY_ACTIVE",
-        message: "Your profile is already active and verified.",
+        code: "PROFILE_ALREADY_SUBMITTED",
+        message: "Your profile has already been submitted and is currently under review.",
         data: {
           profile: {
             id: profile.id,
@@ -917,16 +977,16 @@ export class ProfileService {
       };
     }
 
-    // 5. Atomic conditional status transition to IN_REVIEW
+    // 5. Atomic conditional status transition to ACTIVE
     const updatedProfile = await this.profiles.submitProfile(profile.id);
     if (!updatedProfile) {
       // Race condition check: retrieve latest status
       const latest = await this.profiles.findById(profile.id);
-      if (latest?.profileStatus === ProfileStatus.IN_REVIEW) {
+      if (latest?.profileStatus === ProfileStatus.ACTIVE) {
         return {
           success: true,
-          code: "PROFILE_ALREADY_SUBMITTED",
-          message: "Your profile has already been submitted and is currently under review.",
+          code: "PROFILE_ALREADY_ACTIVE",
+          message: "Your profile is already active.",
           data: {
             profile: {
               id: latest.id,
@@ -938,11 +998,11 @@ export class ProfileService {
         };
       }
 
-      if (latest?.profileStatus === ProfileStatus.ACTIVE) {
+      if (latest?.profileStatus === ProfileStatus.IN_REVIEW) {
         return {
           success: true,
-          code: "PROFILE_ALREADY_ACTIVE",
-          message: "Your profile is already active.",
+          code: "PROFILE_ALREADY_SUBMITTED",
+          message: "Your profile has already been submitted and is currently under review.",
           data: {
             profile: {
               id: latest.id,
@@ -963,7 +1023,7 @@ export class ProfileService {
 
     return {
       success: true,
-      message: "Your profile has been submitted successfully and is now under review.",
+      message: "Your profile has been submitted and activated successfully.",
       data: {
         profile: {
           id: updatedProfile.id,
@@ -1101,8 +1161,8 @@ export class ProfileService {
   /**
    * Retrieves active institutions.
    */
-  async getActiveInstitutions() {
-    const institutions = await this.profiles.getAllActiveInstitutions();
+  async getActiveInstitutions(options?: { search?: string; limit?: number; offset?: number }) {
+    const institutions = await this.profiles.getAllActiveInstitutions(options);
     return institutions.map((inst) => ({
       id: inst.id,
       name: inst.name,
@@ -1139,3 +1199,169 @@ export class ProfileService {
 }
 
 export const profileService = new ProfileService();
+
+/**
+ * Reusable utility to format a candidate profile into a safe PublicProfileDto.
+ * Zero exposure of sensitive authentication or internal moderation data.
+ */
+export function formatPublicProfile(
+  p: any,
+  isFavourited: boolean = false
+): PublicProfileDto {
+  const pd = p.personalDetails;
+  const rel = p.religion;
+  const edu = p.education;
+  const car = p.career;
+  const pp = p.partnerPreference;
+
+  // Calculate age from dateOfBirth
+  let age = 28;
+  if (pd?.dateOfBirth) {
+    const diffMs = Date.now() - new Date(pd.dateOfBirth).getTime();
+    age = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365.25));
+  }
+
+  // Format height string
+  let heightFormatted: string | undefined = undefined;
+  if (pd?.heightCm && pd.heightCm > 0) {
+    const totalInches = Math.round(pd.heightCm / 2.54);
+    const feet = Math.floor(totalInches / 12);
+    const inches = totalInches % 12;
+    heightFormatted = `${feet}' ${inches}" (${pd.heightCm} cm)`;
+  }
+
+  // Format photos array from candidate's actual approved photos
+  const photos = (p.photos || []).map((photo: any) => ({
+    id: photo.id,
+    url: resolvePhotoPublicUrl(photo.storageKey, photo.id, photo.storageProvider),
+    photoType: photo.photoType,
+    sortOrder: photo.sortOrder,
+  }));
+
+  const incomeMap: Record<string, string> = {
+    BELOW_2_LAKH: "Below ₹2 Lakh",
+    TWO_TO_FIVE_LAKH: "₹2–5 Lakh",
+    FIVE_TO_TEN_LAKH: "₹5–10 Lakh",
+    TEN_TO_FIFTEEN_LAKH: "₹10–15 Lakh",
+    FIFTEEN_TO_TWENTY_LAKH: "₹15–20 Lakh",
+    TWENTY_TO_THIRTY_LAKH: "₹20–30 Lakh",
+    THIRTY_TO_FIFTY_LAKH: "₹30–50 Lakh",
+    FIFTY_LAKH_TO_ONE_CRORE: "₹50 Lakh–1 Crore",
+    ABOVE_ONE_CRORE: "Above ₹1 Crore",
+    PREFER_NOT_TO_SAY: "Prefer not to say",
+  };
+
+  const maritalStatusMap: Record<string, string> = {
+    NEVER_MARRIED: "Never Married",
+    DIVORCED: "Divorced",
+    WIDOWED: "Widowed",
+    AWAITING_DIVORCE: "Awaiting Divorce",
+    ANNULLED: "Annulled",
+  };
+
+  const genderMap: Record<string, string> = {
+    MALE: "Male",
+    FEMALE: "Female",
+    OTHER: "Other",
+  };
+
+  const manglikMap: Record<string, string> = {
+    MANGLIK: "Manglik",
+    NON_MANGLIK: "Non-Manglik",
+    ANSHIK_MANGLIK: "Anshik Manglik",
+    DONT_KNOW: "Don't Know",
+  };
+
+  const employmentTypeMap: Record<string, string> = {
+    PRIVATE_SECTOR: "Private Sector",
+    GOVERNMENT_PUBLIC_SECTOR: "Government / Public Sector",
+    DEFENSE_CIVIL_SERVICES: "Defense / Civil Services",
+    BUSINESS_ENTREPRENEUR: "Business / Entrepreneur",
+    SELF_EMPLOYED_FREELANCER: "Self Employed / Freelancer",
+    NOT_WORKING: "Not Working",
+  };
+
+  const createdForMap: Record<string, string> = {
+    SELF: "Self",
+    SON: "Son",
+    DAUGHTER: "Daughter",
+    BROTHER: "Brother",
+    SISTER: "Sister",
+    FRIEND: "Friend",
+    RELATIVE: "Relative",
+  };
+
+  let location = "Location not provided";
+  if (pd?.city && pd?.state) {
+    location = `${pd.city}, ${pd.state}`;
+  } else if (pd?.city) {
+    location = pd.city;
+  } else if (pd?.state) {
+    location = pd.state;
+  }
+
+  let partnerPreference = undefined;
+  if (pp) {
+    partnerPreference = {
+      minAge: pp.minAge || null,
+      maxAge: pp.maxAge || null,
+      minHeightCm: pp.minHeightCm || null,
+      maxHeightCm: pp.maxHeightCm || null,
+      religions: (pp.religions || []).map((r: any) => r.religion?.name).filter(Boolean),
+      communities: (pp.communities || []).map((c: any) => c.community?.name).filter(Boolean),
+      castes: (pp.castes || []).map((c: any) => c.caste?.name).filter(Boolean),
+      gotras: (pp.gotras || []).map((g: any) => g.gotra?.name).filter(Boolean),
+      educations: (pp.educations || []).map((e: any) => e.education?.name).filter(Boolean),
+      occupations: (pp.occupations || []).map((o: any) => o.occupation?.name).filter(Boolean),
+      maritalStatuses: (pp.maritalStatuses || []).map((m: any) => maritalStatusMap[m.maritalStatus] || m.maritalStatus).filter(Boolean),
+      manglik: (pp.manglik || []).map((m: any) => manglikMap[m.manglik] || m.manglik).filter(Boolean),
+    };
+  }
+
+  return {
+    id: p.id,
+    name: pd ? `${pd.firstName}${pd.lastName ? " " + pd.lastName : ""}`.trim() : "Member",
+    age,
+    gender: pd?.gender ? (genderMap[pd.gender] || "Other") : "Not specified",
+    maritalStatus: maritalStatusMap[pd?.maritalStatus || "NEVER_MARRIED"] || "Never Married",
+    profileCreatedFor: p.profileCreatedFor ? (createdForMap[p.profileCreatedFor] || p.profileCreatedFor) : undefined,
+    heightCm: pd?.heightCm || null,
+    heightFormatted,
+    motherTongue: pd?.motherTongue?.name || undefined,
+    location,
+    city: pd?.city || null,
+    state: pd?.state || null,
+    religion:
+      rel?.religion?.slug === "other"
+        ? rel.customReligion || "Not specified"
+        : rel?.religion?.name || "Not specified",
+    community:
+      rel?.community?.slug === "other"
+        ? rel.customCommunity || undefined
+        : rel?.customCommunity || rel?.community?.name || undefined,
+    subCommunity: rel?.subCommunity?.name || undefined,
+    caste:
+      rel?.caste?.slug === "other"
+        ? rel.customCaste || undefined
+        : rel?.customCaste || rel?.caste?.name || undefined,
+    subCaste:
+      rel?.subCaste?.slug === "other"
+        ? rel.customSubCaste || undefined
+        : rel?.customSubCaste || rel?.subCaste?.name || undefined,
+    gotra: rel?.gotra?.name || undefined,
+    manglik: rel?.manglik ? (manglikMap[rel.manglik] || rel.manglik) : undefined,
+    education: edu?.education?.name || edu?.institutionName || "Not specified",
+    specialization: edu?.specialization?.name || undefined,
+    institution: edu?.institution?.name || edu?.institutionName || undefined,
+    occupation: car?.occupation?.name || car?.companyName || "Not specified",
+    employmentStatus: car?.employmentStatus?.name || undefined,
+    employmentType: car?.employmentType ? (employmentTypeMap[car.employmentType] || car.employmentType) : undefined,
+    incomeRange: car?.annualIncomeRange ? (incomeMap[car.annualIncomeRange] || "Not specified") : "Not specified",
+    isVerified: p.profileStatus === ProfileStatus.ACTIVE,
+    isOnline: false,
+    photos,
+    isFavourited,
+    partnerPreference,
+  };
+}
+

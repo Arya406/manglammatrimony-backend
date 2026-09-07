@@ -164,16 +164,10 @@ async function runProfileDataIntegrityTests() {
       data: { completionPercentage: 100 },
     });
 
-    // Submit profile to IN_REVIEW
+    // Submit profile directly to ACTIVE
     const submitA = await profileService.submitProfile(userA.id);
     assert(submitA.success, "Test A5: Submit profile A activates successfully");
-    assert(submitA.data?.profile.profileStatus === ProfileStatus.IN_REVIEW, "Test A6: Profile status is IN_REVIEW");
-
-    // Moderation approval transitions profile to ACTIVE for discovery verification
-    await prisma.profile.update({
-      where: { id: profileIdA },
-      data: { profileStatus: ProfileStatus.ACTIVE },
-    });
+    assert(submitA.data?.profile.profileStatus === ProfileStatus.ACTIVE, "Test A6: Profile status is ACTIVE");
 
     // Fetch matches from observer viewer perspective
     const matchesResA = await matchesService.getDiscoveryMatches(viewerUser.id);

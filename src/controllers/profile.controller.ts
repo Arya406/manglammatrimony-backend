@@ -425,9 +425,17 @@ export class ProfileController {
   /**
    * GET /api/profile/institutions
    */
-  getActiveInstitutions = async (_req: Request, res: Response): Promise<void> => {
+  getActiveInstitutions = async (req: Request, res: Response): Promise<void> => {
     try {
-      const institutions = await this.service.getActiveInstitutions();
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+      const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset, 10) : undefined;
+
+      const institutions = await this.service.getActiveInstitutions({
+        search,
+        limit,
+        offset,
+      });
       res.status(200).json({
         success: true,
         message: "Institutions retrieved successfully.",
@@ -482,6 +490,51 @@ export class ProfileController {
         success: false,
         code: "INTERNAL_SERVER_ERROR",
         message: "An unexpected error occurred while fetching occupations.",
+      });
+    }
+  };
+
+  /**
+   * GET /api/profile/:profileId
+   * Retrieves sanitized public profile for another candidate.
+   * Safe for authenticated users to view without exposing sensitive contact/auth details.
+   */
+  getPublicProfile = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const callerUserId = req.user?.userId;
+      if (!callerUserId) {
+        res.status(401).json({
+          success: false,
+          code: "UNAUTHORIZED",
+          message: "Authentication required.",
+        });
+        return;
+      }
+
+      const { profileId } = req.params;
+      if (!profileId) {
+        res.status(400).json({
+          success: false,
+          code: "BAD_REQUEST",
+          message: "Profile ID is required.",
+        });
+        return;
+      }
+
+      const result = await this.service.getPublicProfile(profileId, callerUserId);
+      if (!result.success) {
+        const statusCode = result.code === "PROFILE_NOT_FOUND" ? 404 : 400;
+        res.status(statusCode).json(result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      console.error("[PROFILE CONTROLLER ERROR - getPublicProfile]:", error);
+      res.status(500).json({
+        success: false,
+        code: "INTERNAL_SERVER_ERROR",
+        message: "An unexpected error occurred while fetching candidate profile.",
       });
     }
   };

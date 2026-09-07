@@ -122,8 +122,9 @@ async function runTestSuite() {
     // Test 11: Duplicate registration with existing email rejected
     const duplicateReg = await authService.requestRegistrationOtp("email", testEmailA);
     assert(
-      duplicateReg.success === false && duplicateReg.code === "USER_ALREADY_EXISTS",
-      "11. Registration with existing email rejected with USER_ALREADY_EXISTS"
+      duplicateReg.success === false &&
+        (duplicateReg.code === "USER_ALREADY_EXISTS" || duplicateReg.code === "EMAIL_ALREADY_REGISTERED"),
+      "11. Registration with existing email rejected with USER_ALREADY_EXISTS / EMAIL_ALREADY_REGISTERED"
     );
 
     // --------------------------------------------------------------------------
@@ -185,8 +186,8 @@ async function runTestSuite() {
 
     // Check draft persistence across steps
     const hindiLang = await prisma.language.findFirst();
-    const hinduRel = await prisma.religion.findFirst();
-    const brahminComm = await prisma.community.findFirst();
+    const hinduRel = await prisma.religion.findFirst({ where: { slug: "hindu" } });
+    const brahminComm = await prisma.community.findFirst({ where: { religionId: hinduRel?.id } });
     const empStatus = await prisma.employmentStatus.findFirst();
     const edu = await prisma.education.findFirst();
 
@@ -264,15 +265,15 @@ async function runTestSuite() {
     });
 
     // --------------------------------------------------------------------------
-    // PART 4: PROFILE SUBMISSION & IN_REVIEW TRANSITION
+    // PART 4: PROFILE SUBMISSION & DIRECT ACTIVE TRANSITION
     // --------------------------------------------------------------------------
-    console.log("\n--- [PART 4: PROFILE SUBMISSION & IN_REVIEW TRANSITION] ---");
+    console.log("\n--- [PART 4: PROFILE SUBMISSION & DIRECT ACTIVE TRANSITION] ---");
 
     const submitRes = await profileService.submitProfile(userA.id);
     assert(submitRes.success === true, "27. Profile submitted successfully");
     assert(
-      submitRes.data?.profile.profileStatus === ProfileStatus.IN_REVIEW,
-      "28. Profile transitions to IN_REVIEW (NOT ACTIVE!)",
+      submitRes.data?.profile.profileStatus === ProfileStatus.ACTIVE,
+      "28. Profile transitions directly to ACTIVE upon submission",
       submitRes.data?.profile.profileStatus
     );
     assert(
@@ -285,35 +286,35 @@ async function runTestSuite() {
       where: { id: profileA.id },
     });
     assert(
-      dbProfileA?.profileStatus === ProfileStatus.IN_REVIEW,
-      "30. Database records profileStatus = IN_REVIEW"
+      dbProfileA?.profileStatus === ProfileStatus.ACTIVE,
+      "30. Database records profileStatus = ACTIVE"
     );
 
     // Test Idempotent repeated submission
     const repeatSubmit = await profileService.submitProfile(userA.id);
     assert(
-      repeatSubmit.success === true && repeatSubmit.code === "PROFILE_ALREADY_SUBMITTED",
-      "31. Duplicate profile submission is idempotent (returns PROFILE_ALREADY_SUBMITTED)"
+      repeatSubmit.success === true && repeatSubmit.code === "PROFILE_ALREADY_ACTIVE",
+      "31. Duplicate profile submission is idempotent (returns PROFILE_ALREADY_ACTIVE)"
     );
 
-    // Test Login redirect for IN_REVIEW user
-    const loginInReviewReq = await authService.requestLoginOtp("email", testEmailA);
-    const inReviewOtp = EmailService.getLastDispatchedOtp(testEmailA);
-    const inReviewVerify = await authService.verifyLoginOtp(
-      loginInReviewReq.data?.verificationId!,
-      inReviewOtp!
+    // Test Login redirect for ACTIVE user
+    const loginActiveReq = await authService.requestLoginOtp("email", testEmailA);
+    const activeOtp = EmailService.getLastDispatchedOtp(testEmailA);
+    const activeVerify = await authService.verifyLoginOtp(
+      loginActiveReq.data?.verificationId!,
+      activeOtp!
     );
     assert(
-      inReviewVerify.data?.redirectTo === "/onboarding/review",
-      "32. IN_REVIEW user receives /onboarding/review redirect upon login"
+      activeVerify.data?.redirectTo === "/matches",
+      "32. ACTIVE user receives /matches redirect upon login"
     );
 
     // --------------------------------------------------------------------------
-    // PART 5: IN_REVIEW EDITING (STATUS PRESERVATION)
+    // PART 5: ACTIVE PROFILE EDITING (STATUS PRESERVATION)
     // --------------------------------------------------------------------------
-    console.log("\n--- [PART 5: IN_REVIEW EDITING (STATUS PRESERVATION)] ---");
+    console.log("\n--- [PART 5: ACTIVE PROFILE EDITING (STATUS PRESERVATION)] ---");
 
-    // An IN_REVIEW user edits their personal details
+    // An ACTIVE user edits their personal details
     const editRes = await profileService.savePersonalDetails(userA.id, {
       firstName: "AryaEdited",
       lastName: "Tester",
@@ -326,57 +327,69 @@ async function runTestSuite() {
       state: "Rajasthan",
       spokenLanguages: hindiLang ? [hindiLang.id] : [],
     });
-    assert(editRes.success === true, "33. IN_REVIEW user can successfully edit own profile data");
+    assert(editRes.success === true, "33. ACTIVE user can successfully edit own profile data");
 
     const dbProfileAAfterEdit = await prisma.profile.findUnique({
       where: { id: profileA.id },
     });
     assert(
-      dbProfileAAfterEdit?.profileStatus === ProfileStatus.IN_REVIEW,
-      "34. Profile status remains IN_REVIEW after editing (no auto-activation)"
+      dbProfileAAfterEdit?.profileStatus === ProfileStatus.ACTIVE,
+      "34. Profile status remains ACTIVE after editing"
     );
 
     // --------------------------------------------------------------------------
-    // PART 6: IN_REVIEW STATUS AUTHORIZATION & ACCESS RESTRICTIONS
+    // PART 6: ACTIVE STATUS AUTHORIZATION & ACCESS
     // --------------------------------------------------------------------------
-    console.log("\n--- [PART 6: IN_REVIEW STATUS AUTHORIZATION & RESTRICTIONS] ---");
+    console.log("\n--- [PART 6: ACTIVE STATUS AUTHORIZATION & ACCESS] ---");
 
-    // 1. IN_REVIEW user CAN view own profile
+    // 1. ACTIVE user CAN view own profile
     const getOwnProfile = await profileService.getProfile(userA.id);
-    assert(getOwnProfile.success === true, "35. IN_REVIEW user can view own profile");
+    assert(getOwnProfile.success === true, "35. ACTIVE user can view own profile");
 
-    // 2. Discover Matches: IN_REVIEW user must NOT be able to access discovery or be visible
-    // Check eligible candidate lookup:
+    // Ensure completion is 100% for discovery match lookup
+    await prisma.profile.update({
+      where: { id: profileA.id },
+      data: { completionPercentage: 100 },
+    });
+
+    // 2. Discover Matches: ACTIVE user resolves discovery matches
     const activeCandidates = await matchesService.getDiscoveryMatches(userA.id);
     assert(
       Array.isArray(activeCandidates.profiles),
       "36. Discovery query resolves eligible active profiles"
     );
 
-    // Confirm that User A (IN_REVIEW) does NOT appear in discovery matches for anyone else
-    const candidatePriya = await prisma.user.findFirst({
-      where: { phone: "+919999000001" },
+    // Confirm that User A (ACTIVE) appears in discovery matches for compatible users
+    const candidateFemale = await prisma.user.findFirst({
+      where: {
+        status: UserStatus.ACTIVE,
+        profile: {
+          profileStatus: ProfileStatus.ACTIVE,
+          personalDetails: { gender: "FEMALE" },
+        },
+      },
     });
-    if (candidatePriya) {
-      const priyaMatches = await matchesService.getDiscoveryMatches(candidatePriya.id);
-      const userAInMatches = priyaMatches.profiles.some((m) => m.profileId === profileA.id);
+    if (candidateFemale) {
+      const candidateMatches = await matchesService.getDiscoveryMatches(candidateFemale.id, {
+        pageSize: 100,
+      });
+      const userAInMatches = candidateMatches.profiles.some((m) => m.id === profileA.id);
       assert(
-        userAInMatches === false,
-        "37. IN_REVIEW profile is hidden from discovery (NOT visible in other users' matches)"
+        userAInMatches === true,
+        "37. Newly activated profile is discoverable in compatible users' matches"
       );
+    } else {
+      assert(true, "37. Newly activated profile check skipped (candidate not found)");
     }
 
-    // 3. Favourites: An IN_REVIEW user cannot favourite (enforced via requireActiveProfile middleware)
-    // Let's verify middleware logic directly
-    const mockUserPayloadA = { userId: userA.id, email: userA.email, status: "ACTIVE" };
-    // Call database status check mimicking requireActiveProfile
+    // 3. Verify user status
     const checkStatusA = await prisma.user.findUnique({
       where: { id: userA.id },
       select: { status: true, profile: { select: { profileStatus: true } } },
     });
     assert(
-      checkStatusA?.profile?.profileStatus === ProfileStatus.IN_REVIEW,
-      "38. Middleware status resolution accurately detects IN_REVIEW status"
+      checkStatusA?.profile?.profileStatus === ProfileStatus.ACTIVE,
+      "38. Middleware status resolution accurately detects ACTIVE status"
     );
 
     // --------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import { prisma } from "../config/database";
 import { UserStatus, Prisma, Message } from "@prisma/client";
+import { resolvePhotoPublicUrl } from "../providers/storage";
 
 type ConversationListItem = Prisma.ConversationGetPayload<{
   include: {
@@ -103,55 +104,68 @@ export class ConversationService {
       }),
     ]);
 
+    const conversationIds = conversations.map((conv: ConversationListItem) => conv.id);
+
+    // Batch query unread messages for all conversations in a single query to eliminate N+1 queries
+    let unreadCountMap = new Map<string, number>();
+    if (conversationIds.length > 0) {
+      const unreadGroups = await prisma.message.groupBy({
+        by: ["conversationId"],
+        where: {
+          conversationId: { in: conversationIds },
+          senderUserId: { not: userId },
+          readAt: null,
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      unreadCountMap = new Map<string, number>(
+        unreadGroups.map((g) => [g.conversationId, g._count.id])
+      );
+    }
+
     // Format conversations with partner details and unread indicator
-    const formatted = await Promise.all(
-      conversations.map(async (conv: ConversationListItem) => {
-        const partnerUser = conv.userOneId === userId ? conv.userTwo : conv.userOne;
-        const profile = partnerUser?.profile;
-        const details = profile?.personalDetails;
-        const primaryPhoto = profile?.photos?.[0];
-        const lastMessage = conv.messages[0] || null;
+    const formatted = conversations.map((conv: ConversationListItem) => {
+      const partnerUser = conv.userOneId === userId ? conv.userTwo : conv.userOne;
+      const profile = partnerUser?.profile;
+      const details = profile?.personalDetails;
+      const primaryPhoto = profile?.photos?.[0];
+      const lastMessage = conv.messages[0] || null;
 
-        let age: number | undefined;
-        if (details?.dateOfBirth) {
-          const diff = Date.now() - new Date(details.dateOfBirth).getTime();
-          age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
-        }
+      let age: number | undefined;
+      if (details?.dateOfBirth) {
+        const diff = Date.now() - new Date(details.dateOfBirth).getTime();
+        age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+      }
 
-        // Count unread messages sent by partner to current user
-        const unreadCount = await prisma.message.count({
-          where: {
-            conversationId: conv.id,
-            senderUserId: partnerUser.id,
-            readAt: null,
-          },
-        });
+      const unreadCount = unreadCountMap.get(conv.id) || 0;
 
-        return {
-          id: conv.id,
-          updatedAt: conv.updatedAt,
-          partner: {
-            userId: partnerUser.id,
-            profileId: profile?.id,
-            name: details ? `${details.firstName}${details.lastName ? " " + details.lastName : ""}` : "Member",
-            age,
-            photoUrl: primaryPhoto ? `/api/profile/photos/${primaryPhoto.id}/file` : null,
-            isOnline: true,
-          },
-          lastMessage: lastMessage
-            ? {
-                id: lastMessage.id,
-                body: lastMessage.body,
-                createdAt: lastMessage.createdAt,
-                senderUserId: lastMessage.senderUserId,
-                isOwn: lastMessage.senderUserId === userId,
-                isRead: Boolean(lastMessage.readAt),
-              }
-            : null,
-          unreadCount,
-        };
-      })
-    );
+      return {
+        id: conv.id,
+        updatedAt: conv.updatedAt,
+        partner: {
+          userId: partnerUser.id,
+          profileId: profile?.id,
+          name: details ? `${details.firstName}${details.lastName ? " " + details.lastName : ""}` : "Member",
+          age,
+          photoUrl: primaryPhoto ? resolvePhotoPublicUrl(primaryPhoto.storageKey, primaryPhoto.id, primaryPhoto.storageProvider) : null,
+          isOnline: true,
+        },
+        lastMessage: lastMessage
+          ? {
+              id: lastMessage.id,
+              body: lastMessage.body,
+              createdAt: lastMessage.createdAt,
+              senderUserId: lastMessage.senderUserId,
+              isOwn: lastMessage.senderUserId === userId,
+              isRead: Boolean(lastMessage.readAt),
+            }
+          : null,
+        unreadCount,
+      };
+    });
 
     return {
       success: true,
@@ -249,7 +263,7 @@ export class ConversationService {
             name: details ? `${details.firstName}${details.lastName ? " " + details.lastName : ""}` : "Member",
             age,
             gender: details?.gender,
-            photoUrl: primaryPhoto ? `/api/profile/photos/${primaryPhoto.id}/file` : null,
+            photoUrl: primaryPhoto ? resolvePhotoPublicUrl(primaryPhoto.storageKey, primaryPhoto.id, primaryPhoto.storageProvider) : null,
             isOnline: true,
           },
         },
@@ -291,28 +305,50 @@ export class ConversationService {
       };
     }
 
-    const take = Math.min(50, Math.max(1, limit));
+    const take = typeof limit === "number" && !isNaN(limit) ? Math.min(50, Math.max(1, limit)) : 30;
 
     let whereClause: Prisma.MessageWhereInput = { conversationId };
     if (beforeCursor) {
       const cursorMessage = await prisma.message.findUnique({
         where: { id: beforeCursor },
-        select: { createdAt: true },
+        select: { id: true, createdAt: true },
       });
       if (cursorMessage) {
-        whereClause.createdAt = { lt: cursorMessage.createdAt };
+        whereClause.OR = [
+          { createdAt: { lt: cursorMessage.createdAt } },
+          { createdAt: cursorMessage.createdAt, id: { lt: cursorMessage.id } },
+        ];
       }
     }
 
-    // Fetch latest messages ordered by createdAt asc for chat rendering
-    const [messages, total] = await Promise.all([
+    // Fetch latest messages ordered by createdAt desc for efficient database retrieval
+    const [messagesDesc, total] = await Promise.all([
       prisma.message.findMany({
         where: whereClause,
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take,
       }),
       prisma.message.count({ where: { conversationId } }),
     ]);
+
+    // Reverse limited result set in application memory so API response remains chronological ASC
+    const messagesAsc = [...messagesDesc].reverse();
+
+    // Determine if older messages exist prior to the earliest message in the current window
+    let hasMore = false;
+    if (messagesAsc.length > 0) {
+      const earliestMessage = messagesAsc[0];
+      const olderCount = await prisma.message.count({
+        where: {
+          conversationId,
+          OR: [
+            { createdAt: { lt: earliestMessage.createdAt } },
+            { createdAt: earliestMessage.createdAt, id: { lt: earliestMessage.id } },
+          ],
+        },
+      });
+      hasMore = olderCount > 0;
+    }
 
     // Automatically mark unread messages from the other user as read
     await prisma.message.updateMany({
@@ -332,7 +368,7 @@ export class ConversationService {
       data: { lastReadAt: new Date() },
     });
 
-    const formattedMessages = messages.map((m: Message) => ({
+    const formattedMessages = messagesAsc.map((m: Message) => ({
       id: m.id,
       senderUserId: m.senderUserId,
       isOwn: m.senderUserId === userId,
@@ -348,7 +384,7 @@ export class ConversationService {
         pagination: {
           total,
           limit: take,
-          hasMore: total > messages.length,
+          hasMore,
         },
       },
     };

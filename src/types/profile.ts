@@ -244,6 +244,58 @@ export interface CompleteProfileResponseDto {
   partnerPreferences: PartnerPreferencesResponseDto | null;
 }
 
+export interface PublicProfileDto {
+  id: string;
+  name: string;
+  age: number;
+  gender: string;
+  maritalStatus: string;
+  profileCreatedFor?: string;
+  heightCm?: number | null;
+  heightFormatted?: string;
+  motherTongue?: string;
+  location: string;
+  city?: string | null;
+  state?: string | null;
+  religion: string;
+  community?: string;
+  subCommunity?: string;
+  caste?: string;
+  subCaste?: string;
+  gotra?: string;
+  manglik?: string;
+  education: string;
+  specialization?: string;
+  institution?: string;
+  occupation: string;
+  employmentStatus?: string;
+  employmentType?: string;
+  incomeRange: string;
+  isVerified: boolean;
+  isOnline: boolean;
+  photos: Array<{
+    id: string;
+    url: string;
+    photoType: string;
+    sortOrder: number;
+  }>;
+  isFavourited?: boolean;
+  partnerPreference?: {
+    minAge?: number | null;
+    maxAge?: number | null;
+    minHeightCm?: number | null;
+    maxHeightCm?: number | null;
+    religions?: string[];
+    communities?: string[];
+    castes?: string[];
+    gotras?: string[];
+    educations?: string[];
+    occupations?: string[];
+    maritalStatuses?: string[];
+    manglik?: string[];
+  };
+}
+
 export type ProfileSubmissionErrorCode =
   | "PROFILE_NOT_FOUND"
   | "PROFILE_INCOMPLETE"
@@ -254,3 +306,4 @@ export type ProfileSubmissionErrorCode =
   | "PROFILE_SUSPENDED"
   | "UNAUTHORIZED"
   | "INTERNAL_SERVER_ERROR";
+

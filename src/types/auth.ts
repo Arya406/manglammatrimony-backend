@@ -70,4 +70,5 @@ export interface RequestOtpResponse {
   maskedIdentifier: string;
   resendCooldownSeconds: number;
   expiresInSeconds: number;
+  debugOtp?: string;
 }

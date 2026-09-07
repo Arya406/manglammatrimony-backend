@@ -23,3 +23,8 @@ npm-debug.log*
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Scratch and analysis dumps
+master-data/
+scripts/*.json
+

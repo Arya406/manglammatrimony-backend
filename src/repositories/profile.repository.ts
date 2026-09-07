@@ -1,4 +1,5 @@
 import {
+  Prisma,
   PrismaClient,
   Profile,
   ProfileCreatedFor,
@@ -20,6 +21,7 @@ import {
   EmploymentStatus,
   Occupation,
   ManglikStatus,
+  ModerationStatus,
 } from "@prisma/client";
 import { prisma as defaultPrisma } from "../config/database";
 import {
@@ -204,6 +206,132 @@ export class ProfileRepository {
     });
   }
 
+  async getPublicProfileById(id: string) {
+    return this.prisma.profile.findUnique({
+      where: { id },
+      include: {
+        personalDetails: {
+          include: {
+            motherTongue: {
+              select: { id: true, name: true, code: true },
+            },
+          },
+        },
+        languages: {
+          include: {
+            language: {
+              select: { id: true, name: true, code: true },
+            },
+          },
+        },
+        religion: {
+          include: {
+            religion: {
+              select: { id: true, name: true, slug: true },
+            },
+            community: {
+              select: { id: true, name: true, slug: true },
+            },
+            subCommunity: {
+              select: { id: true, name: true, slug: true },
+            },
+            caste: {
+              select: { id: true, name: true, slug: true },
+            },
+            subCaste: {
+              select: { id: true, name: true, slug: true },
+            },
+            gotra: {
+              select: { id: true, name: true, slug: true },
+            },
+          },
+        },
+        education: {
+          include: {
+            education: {
+              select: { id: true, name: true, slug: true },
+            },
+            specialization: {
+              select: { id: true, name: true, slug: true },
+            },
+            institution: {
+              select: { id: true, name: true, normalizedName: true, type: true },
+            },
+          },
+        },
+        career: {
+          include: {
+            employmentStatus: {
+              select: { id: true, name: true, slug: true },
+            },
+            occupation: {
+              select: { id: true, name: true, slug: true },
+            },
+          },
+        },
+        photos: {
+          where: { moderationStatus: ModerationStatus.APPROVED },
+          orderBy: { sortOrder: "asc" },
+        },
+        partnerPreference: {
+          include: {
+            religions: {
+              include: {
+                religion: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            communities: {
+              include: {
+                community: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            subCommunities: {
+              include: {
+                subCommunity: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            castes: {
+              include: {
+                caste: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            gotras: {
+              include: {
+                gotra: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            educations: {
+              include: {
+                education: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            occupations: {
+              include: {
+                occupation: {
+                  select: { id: true, name: true, slug: true },
+                },
+              },
+            },
+            manglik: true,
+            maritalStatuses: true,
+          },
+        },
+      },
+    });
+  }
+
   async getAllActiveLanguages(): Promise<Language[]> {
     return this.prisma.language.findMany({
       where: { isActive: true },
@@ -281,7 +409,11 @@ export class ProfileRepository {
     return this.prisma.gotra.findMany({
       where: {
         isActive: true,
-        ...(communityId ? { communityId } : {}),
+        ...(communityId
+          ? {
+              OR: [{ communityId }, { communityId: null }],
+            }
+          : {}),
       },
       orderBy: { sortOrder: "asc" },
     });
@@ -304,10 +436,33 @@ export class ProfileRepository {
     });
   }
 
-  async getAllActiveInstitutions(): Promise<Institution[]> {
+  async getAllActiveInstitutions(options?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<Institution[]> {
+    const defaultLimit = 100;
+    const maxLimit = 200;
+    const boundedLimit = Math.min(maxLimit, Math.max(1, options?.limit || defaultLimit));
+    const skip = Math.max(0, options?.offset || 0);
+
+    const where: Prisma.InstitutionWhereInput = {
+      isActive: true,
+    };
+
+    if (options?.search && options.search.trim().length > 0) {
+      const searchTerm = options.search.trim();
+      where.OR = [
+        { name: { contains: searchTerm, mode: "insensitive" } },
+        { normalizedName: { contains: searchTerm.toLowerCase().replace(/[^a-z0-9]/g, "") } },
+      ];
+    }
+
     return this.prisma.institution.findMany({
-      where: { isActive: true },
+      where,
       orderBy: { name: "asc" },
+      take: boundedLimit,
+      skip,
     });
   }
 
@@ -641,11 +796,8 @@ export class ProfileRepository {
 
     if (!existing) return null;
 
-    // Idempotency: If already IN_REVIEW or ACTIVE, preserve state and timestamps
-    if (
-      existing.profileStatus === ProfileStatus.IN_REVIEW ||
-      existing.profileStatus === ProfileStatus.ACTIVE
-    ) {
+    // Idempotency: If already ACTIVE, preserve state and timestamps
+    if (existing.profileStatus === ProfileStatus.ACTIVE) {
       return existing;
     }
 
@@ -653,8 +805,8 @@ export class ProfileRepository {
     return this.prisma.profile.update({
       where: { id: profileId },
       data: {
-        profileStatus: ProfileStatus.IN_REVIEW,
-        submittedAt: now,
+        profileStatus: ProfileStatus.ACTIVE,
+        submittedAt: existing.submittedAt || now,
       },
     });
   }

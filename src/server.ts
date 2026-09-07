@@ -1,6 +1,10 @@
 import { app } from "./app";
-import { config } from "./config/env";
+import { config, validateStorageConfig, validateAuthConfig } from "./config/env";
 import { seedMasterData } from "./services/seed.service";
+
+// Fail-fast startup validation of storage and production authentication configuration
+validateStorageConfig();
+validateAuthConfig();
 
 const server = app.listen(config.port, async () => {
   console.log(

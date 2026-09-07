@@ -92,3 +92,7 @@ profileRouter.get("/favourites", requireActiveProfile, (req: Request, res: Respo
 profileRouter.get("/favourites/status/:profileId", requireActiveProfile, (req: Request, res: Response) => favouriteController.getFavouriteStatus(req, res));
 profileRouter.get("/likes/received", requireActiveProfile, (req: Request, res: Response) => favouriteController.getReceivedLikes(req, res));
 profileRouter.get("/likes/received/count", requireActiveProfile, (req: Request, res: Response) => favouriteController.getReceivedLikesCount(req, res));
+
+// 10. Public candidate profile view (Safe for another authenticated user to view)
+profileRouter.get("/:profileId", profileController.getPublicProfile);
+

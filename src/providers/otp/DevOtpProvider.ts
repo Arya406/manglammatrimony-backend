@@ -10,8 +10,8 @@ export class DevOtpProvider implements IOtpProvider {
   async sendOtp(recipient: string, otp: string, method: AuthMethod): Promise<boolean> {
     this.lastOtp = otp;
     this.lastRecipient = recipient;
-    if (config.nodeEnv !== "production") {
-      // In development mode only, log dispatch to console for local testing
+    if (config.devDummyOtpEnabled) {
+      // In development mode only when explicitly enabled, log dispatch to console for local testing
       console.log(
         `\n[DEV OTP DISPATCH] Channel: ${method.toUpperCase()} | Recipient: ${recipient} | Verification OTP: [ ${otp} ]\n`
       );

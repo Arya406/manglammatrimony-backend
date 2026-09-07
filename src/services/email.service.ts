@@ -153,25 +153,59 @@ export class EmailService {
       dispatchedAt: new Date(),
     });
 
-    // Check production configuration requirements
+    // In production, email delivery MUST strictly execute via Resend.
+    // NEVER return synthetic success or bypass real delivery in production.
     if (config.nodeEnv === "production") {
-      if (!config.resend.apiKey) {
+      if (!this.resendClient || !config.resend.apiKey || config.resend.apiKey.startsWith("mock_")) {
         console.error("[EMAIL ERROR] Production email dispatch failed: RESEND_API_KEY is not configured.");
         return {
           success: false,
-          error: "Email provider unconfigured. RESEND_API_KEY is required in production.",
+          error: "Email provider unconfigured. Valid RESEND_API_KEY is required in production.",
         };
       }
+
       if (!config.resend.fromEmail || config.resend.fromEmail.includes("onboarding@resend.dev")) {
-        console.error("[EMAIL ERROR] Production email dispatch failed: Valid verified domain sender is required in RESEND_FROM_EMAIL.");
+        console.error(
+          "[EMAIL ERROR] Production email dispatch failed: Valid verified domain sender is required in RESEND_FROM_EMAIL."
+        );
         return {
           success: false,
-          error: "Invalid production email sender. Senders using onboarding@resend.dev are not permitted in production.",
+          error:
+            "Invalid production email sender. Senders using onboarding@resend.dev are not permitted in production.",
+        };
+      }
+
+      try {
+        const response = await this.resendClient.emails.send({
+          from: config.resend.fromEmail,
+          to: [to],
+          subject,
+          html,
+        });
+
+        if (response.error) {
+          console.error("[RESEND API ERROR]:", response.error);
+          return {
+            success: false,
+            error: response.error.message || "Failed to deliver email through Resend.",
+          };
+        }
+
+        return {
+          success: true,
+          messageId: response.data?.id,
+        };
+      } catch (err: any) {
+        console.error("[RESEND CLIENT ERROR]:", err);
+        return {
+          success: false,
+          error: err.message || "Failed to deliver email through Resend.",
         };
       }
     }
 
-    // If client is initialized and not in synthetic test mode, send via Resend API
+    // In development / test environment:
+    // If client is initialized with a non-mock key, send via Resend API
     if (this.resendClient && config.resend.apiKey && !config.resend.apiKey.startsWith("mock_")) {
       try {
         const response = await this.resendClient.emails.send({
@@ -202,9 +236,12 @@ export class EmailService {
       }
     }
 
-    // In development / test mode, log dispatch safely WITHOUT printing the OTP
-    if (config.nodeEnv !== "production") {
-      console.log(`[DEV EMAIL DISPATCH] Verification email dispatched to ${to} (${type})`);
+    // In development / test mode with mock credentials:
+    // Only log dummy OTP if explicitly enabled for local development
+    if (config.devDummyOtpEnabled) {
+      console.log(
+        `\n[DEV DUMMY OTP] Action: ${type.toUpperCase()} | Recipient: ${to} | Verification OTP: [ ${otp} ]\n`
+      );
     }
 
     return {

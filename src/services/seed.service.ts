@@ -128,93 +128,15 @@ export const LANGUAGES = [
   { name: "Other", code: "other", sortOrder: 21 },
 ];
 
+import { seedAllMasterData, MasterDataSeedResult } from "./master-data-seed.service";
+
 /**
  * Idempotently seeds all master data required by Manglam Matrimony onboarding.
  * - Uses upsert on unique keys (slug, code, [employmentStatusId, slug]).
  * - Safe to run repeatedly without creating duplicates.
  * - Does not touch user or profile tables.
  */
-export async function seedMasterData(): Promise<{ totalInsertedOrVerified: number }> {
-  console.log("[MASTER DATA SEED] Starting idempotent master data seed...");
-
-  // 1. Seed Religions (10)
-  for (const rel of RELIGIONS) {
-    await prisma.religion.upsert({
-      where: { slug: rel.slug },
-      update: { name: rel.name, sortOrder: rel.sortOrder, isActive: true },
-      create: { name: rel.name, slug: rel.slug, sortOrder: rel.sortOrder, isActive: true },
-    });
-  }
-
-  // 2. Seed Communities (20)
-  for (const com of COMMUNITIES) {
-    await prisma.community.upsert({
-      where: { slug: com.slug },
-      update: { name: com.name, sortOrder: com.sortOrder, isActive: true },
-      create: { name: com.name, slug: com.slug, sortOrder: com.sortOrder, isActive: true },
-    });
-  }
-
-  // 3. Seed Educations (25)
-  for (const edu of EDUCATIONS) {
-    await prisma.education.upsert({
-      where: { slug: edu.slug },
-      update: { name: edu.name, sortOrder: edu.sortOrder, isActive: true },
-      create: { name: edu.name, slug: edu.slug, sortOrder: edu.sortOrder, isActive: true },
-    });
-  }
-
-  // 4. Seed Employment Statuses (10)
-  for (const emp of EMPLOYMENT_STATUSES) {
-    await prisma.employmentStatus.upsert({
-      where: { slug: emp.slug },
-      update: { name: emp.name, sortOrder: emp.sortOrder, isActive: true },
-      create: { name: emp.name, slug: emp.slug, sortOrder: emp.sortOrder, isActive: true },
-    });
-  }
-
-  // 5. Seed Occupations (1)
-  for (const occ of OCCUPATIONS) {
-    const parentStatus = await prisma.employmentStatus.findUnique({
-      where: { slug: occ.employmentStatusSlug },
-    });
-    if (parentStatus) {
-      await prisma.occupation.upsert({
-        where: {
-          employmentStatusId_slug: {
-            employmentStatusId: parentStatus.id,
-            slug: occ.slug,
-          },
-        },
-        update: { name: occ.name, sortOrder: occ.sortOrder, isActive: true },
-        create: {
-          name: occ.name,
-          slug: occ.slug,
-          employmentStatusId: parentStatus.id,
-          sortOrder: occ.sortOrder,
-          isActive: true,
-        },
-      });
-    }
-  }
-
-  // 6. Seed Languages (21)
-  for (const lang of LANGUAGES) {
-    await prisma.language.upsert({
-      where: { code: lang.code },
-      update: { name: lang.name, sortOrder: lang.sortOrder, isActive: true },
-      create: { name: lang.name, code: lang.code, sortOrder: lang.sortOrder, isActive: true },
-    });
-  }
-
-  const total =
-    RELIGIONS.length +
-    COMMUNITIES.length +
-    EDUCATIONS.length +
-    EMPLOYMENT_STATUSES.length +
-    OCCUPATIONS.length +
-    LANGUAGES.length;
-
-  console.log(`[MASTER DATA SEED] Successfully verified/seeded ${total} master records.`);
-  return { totalInsertedOrVerified: total };
+export async function seedMasterData(): Promise<MasterDataSeedResult> {
+  return seedAllMasterData();
 }
+

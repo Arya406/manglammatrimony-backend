@@ -1,27 +1,51 @@
 import { prisma } from "../config/database";
 import { ProfileStatus, UserStatus, Prisma } from "@prisma/client";
 import { favouriteRepository } from "../repositories/favourite.repository";
+import { resolvePhotoPublicUrl } from "../providers/storage";
 
 type CandidateProfilePayload = Prisma.ProfileGetPayload<{
   include: {
-    personalDetails: true;
+    personalDetails: {
+      include: {
+        motherTongue: true;
+      };
+    };
     religion: {
       include: {
         religion: true;
         community: true;
+        subCommunity: true;
+        caste: true;
+        subCaste: true;
+        gotra: true;
       };
     };
     education: {
       include: {
         education: true;
+        specialization: true;
+        institution: true;
       };
     };
     career: {
       include: {
+        employmentStatus: true;
         occupation: true;
       };
     };
     photos: true;
+    partnerPreference: {
+      include: {
+        religions: { include: { religion: true } };
+        communities: { include: { community: true } };
+        castes: { include: { caste: true } };
+        gotras: { include: { gotra: true } };
+        educations: { include: { education: true } };
+        occupations: { include: { occupation: true } };
+        maritalStatuses: true;
+        manglik: true;
+      };
+    };
   };
 }>;
 
@@ -40,16 +64,45 @@ export interface FormattedDiscoveryProfile {
   age: number;
   gender: string;
   maritalStatus: string;
+  profileCreatedFor?: string;
+  heightCm?: number | null;
+  heightFormatted?: string;
+  motherTongue?: string;
   religion: string;
   community?: string;
+  subCommunity?: string;
+  caste?: string;
+  subCaste?: string;
+  gotra?: string;
+  manglik?: string;
   location: string;
+  city?: string | null;
+  state?: string | null;
   education: string;
+  specialization?: string;
+  institution?: string;
   occupation: string;
+  employmentStatus?: string;
+  employmentType?: string;
   incomeRange: string;
   isVerified: boolean;
   isOnline: boolean;
   photos: string[];
   isFavourited?: boolean;
+  partnerPreference?: {
+    minAge?: number | null;
+    maxAge?: number | null;
+    minHeightCm?: number | null;
+    maxHeightCm?: number | null;
+    religions?: string[];
+    communities?: string[];
+    castes?: string[];
+    gotras?: string[];
+    educations?: string[];
+    occupations?: string[];
+    maritalStatuses?: string[];
+    manglik?: string[];
+  };
 }
 
 export class MatchesService {
@@ -144,26 +197,50 @@ export class MatchesService {
       prisma.profile.findMany({
         where: baseWhere,
         include: {
-          personalDetails: true,
+          personalDetails: {
+            include: {
+              motherTongue: true,
+            },
+          },
           religion: {
             include: {
               religion: true,
               community: true,
+              subCommunity: true,
+              caste: true,
+              subCaste: true,
+              gotra: true,
             },
           },
           education: {
             include: {
               education: true,
+              specialization: true,
+              institution: true,
             },
           },
           career: {
             include: {
+              employmentStatus: true,
               occupation: true,
             },
           },
           photos: {
+            where: { moderationStatus: "APPROVED" },
             orderBy: { sortOrder: "asc" },
-            take: 5,
+            take: 6,
+          },
+          partnerPreference: {
+            include: {
+              religions: { include: { religion: true } },
+              communities: { include: { community: true } },
+              castes: { include: { caste: true } },
+              gotras: { include: { gotra: true } },
+              educations: { include: { education: true } },
+              occupations: { include: { occupation: true } },
+              maritalStatuses: true,
+              manglik: true,
+            },
           },
         },
         orderBy: [
@@ -213,6 +290,7 @@ export function formatDiscoveryProfile(
   const rel = p.religion;
   const edu = p.education;
   const car = p.career;
+  const pp = p.partnerPreference;
 
   // Calculate age from dateOfBirth
   let age = 28;
@@ -221,9 +299,18 @@ export function formatDiscoveryProfile(
     age = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365.25));
   }
 
-  // Format photos array from candidate's actual uploaded photos
+  // Format height string
+  let heightFormatted: string | undefined = undefined;
+  if (pd?.heightCm && pd.heightCm > 0) {
+    const totalInches = Math.round(pd.heightCm / 2.54);
+    const feet = Math.floor(totalInches / 12);
+    const inches = totalInches % 12;
+    heightFormatted = `${feet}' ${inches}" (${pd.heightCm} cm)`;
+  }
+
+  // Format photos array from candidate's actual approved photos
   const photoUrls: string[] = (p.photos || []).map(
-    (photo: any) => `/api/profile/photos/${photo.id}/file`
+    (photo: any) => resolvePhotoPublicUrl(photo.storageKey, photo.id, photo.storageProvider)
   );
 
   // Centralized income range mapping (truthful representation)
@@ -254,6 +341,32 @@ export function formatDiscoveryProfile(
     OTHER: "Other",
   };
 
+  const manglikMap: Record<string, string> = {
+    MANGLIK: "Manglik",
+    NON_MANGLIK: "Non-Manglik",
+    ANSHIK_MANGLIK: "Anshik Manglik",
+    DONT_KNOW: "Don't Know",
+  };
+
+  const employmentTypeMap: Record<string, string> = {
+    PRIVATE_SECTOR: "Private Sector",
+    GOVERNMENT_PUBLIC_SECTOR: "Government / Public Sector",
+    DEFENSE_CIVIL_SERVICES: "Defense / Civil Services",
+    BUSINESS_ENTREPRENEUR: "Business / Entrepreneur",
+    SELF_EMPLOYED_FREELANCER: "Self Employed / Freelancer",
+    NOT_WORKING: "Not Working",
+  };
+
+  const createdForMap: Record<string, string> = {
+    SELF: "Self",
+    SON: "Son",
+    DAUGHTER: "Daughter",
+    BROTHER: "Brother",
+    SISTER: "Sister",
+    FRIEND: "Friend",
+    RELATIVE: "Relative",
+  };
+
   // Construct dynamic location from candidate's actual database values
   let location = "Location not provided";
   if (pd?.city && pd?.state) {
@@ -264,12 +377,34 @@ export function formatDiscoveryProfile(
     location = pd.state;
   }
 
+  let partnerPreference = undefined;
+  if (pp) {
+    partnerPreference = {
+      minAge: pp.minAge || null,
+      maxAge: pp.maxAge || null,
+      minHeightCm: pp.minHeightCm || null,
+      maxHeightCm: pp.maxHeightCm || null,
+      religions: (pp.religions || []).map((r: any) => r.religion?.name).filter(Boolean),
+      communities: (pp.communities || []).map((c: any) => c.community?.name).filter(Boolean),
+      castes: (pp.castes || []).map((c: any) => c.caste?.name).filter(Boolean),
+      gotras: (pp.gotras || []).map((g: any) => g.gotra?.name).filter(Boolean),
+      educations: (pp.educations || []).map((e: any) => e.education?.name).filter(Boolean),
+      occupations: (pp.occupations || []).map((o: any) => o.occupation?.name).filter(Boolean),
+      maritalStatuses: (pp.maritalStatuses || []).map((m: any) => maritalStatusMap[m.maritalStatus] || m.maritalStatus).filter(Boolean),
+      manglik: (pp.manglik || []).map((m: any) => manglikMap[m.manglik] || m.manglik).filter(Boolean),
+    };
+  }
+
   return {
     id: p.id,
     name: pd ? `${pd.firstName}${pd.lastName ? " " + pd.lastName : ""}`.trim() : "Member",
     age,
     gender: pd?.gender ? (genderMap[pd.gender] || "Other") : "Not specified",
     maritalStatus: maritalStatusMap[pd?.maritalStatus || "NEVER_MARRIED"] || "Never Married",
+    profileCreatedFor: p.profileCreatedFor ? (createdForMap[p.profileCreatedFor] || p.profileCreatedFor) : undefined,
+    heightCm: pd?.heightCm || null,
+    heightFormatted,
+    motherTongue: pd?.motherTongue?.name || undefined,
     religion:
       rel?.religion?.slug === "other"
         ? rel.customReligion || "Not specified"
@@ -278,14 +413,32 @@ export function formatDiscoveryProfile(
       rel?.community?.slug === "other"
         ? rel.customCommunity || undefined
         : rel?.customCommunity || rel?.community?.name || undefined,
+    subCommunity: rel?.subCommunity?.name || undefined,
+    caste:
+      rel?.caste?.slug === "other"
+        ? rel.customCaste || undefined
+        : rel?.customCaste || rel?.caste?.name || undefined,
+    subCaste:
+      rel?.subCaste?.slug === "other"
+        ? rel.customSubCaste || undefined
+        : rel?.customSubCaste || rel?.subCaste?.name || undefined,
+    gotra: rel?.gotra?.name || undefined,
+    manglik: rel?.manglik ? (manglikMap[rel.manglik] || rel.manglik) : undefined,
     location,
+    city: pd?.city || null,
+    state: pd?.state || null,
     education: edu?.education?.name || edu?.institutionName || "Not specified",
+    specialization: edu?.specialization?.name || undefined,
+    institution: edu?.institution?.name || edu?.institutionName || undefined,
     occupation: car?.occupation?.name || car?.companyName || "Not specified",
+    employmentStatus: car?.employmentStatus?.name || undefined,
+    employmentType: car?.employmentType ? (employmentTypeMap[car.employmentType] || car.employmentType) : undefined,
     incomeRange: car?.annualIncomeRange ? (incomeMap[car.annualIncomeRange] || "Not specified") : "Not specified",
     isVerified: p.profileStatus === ProfileStatus.ACTIVE,
-    isOnline: true,
+    isOnline: false,
     photos: photoUrls,
     isFavourited,
+    partnerPreference,
   };
 }
 

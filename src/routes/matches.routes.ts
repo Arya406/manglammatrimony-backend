@@ -1,13 +1,12 @@
 import { Router } from "express";
 import { matchesController } from "../controllers/matches.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
-import { requireActiveProfile } from "../middlewares/profile-status.middleware";
 
 export const matchesRouter = Router();
 
-// Matches discovery requires authentication and an ACTIVE profile
+// Matches discovery requires a valid authenticated session
+// (Temporary review rule: accessible to all authenticated users regardless of profile lifecycle state)
 matchesRouter.use(authMiddleware);
-matchesRouter.use(requireActiveProfile);
 
 // GET /api/matches - Retrieve paginated discovery profiles
 matchesRouter.get("/", matchesController.getMatches);
