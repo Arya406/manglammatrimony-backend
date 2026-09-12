@@ -1,5 +1,5 @@
 import { prisma } from "../config/database";
-import { ProfileStatus, UserStatus, Prisma } from "@prisma/client";
+import { ProfileStatus, UserStatus, Gender, Prisma } from "@prisma/client";
 import { favouriteRepository } from "../repositories/favourite.repository";
 import { resolvePhotoPublicUrl } from "../providers/storage";
 
@@ -156,11 +156,17 @@ export class MatchesService {
 
     // If current user is MALE, prioritize FEMALE (and vice versa) if specified in personalDetails
     if (currentUserProfile?.personalDetails?.gender) {
-      const oppositeGender =
-        currentUserProfile.personalDetails.gender === "MALE" ? "FEMALE" : "MALE";
-      baseWhere.personalDetails = {
-        gender: oppositeGender,
-      };
+      const userGender = currentUserProfile.personalDetails.gender;
+      if (userGender === Gender.MALE) {
+        baseWhere.personalDetails = {
+          gender: Gender.FEMALE,
+        };
+      } else if (userGender === Gender.FEMALE) {
+        baseWhere.personalDetails = {
+          gender: Gender.MALE,
+        };
+      }
+      // For OTHER or unspecified cases, do not restrict by opposite gender
     }
 
     // Apply category-specific matching criteria if requested

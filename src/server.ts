@@ -1,22 +1,15 @@
 import { app } from "./app";
 import { config, validateStorageConfig, validateAuthConfig } from "./config/env";
-import { seedMasterData } from "./services/seed.service";
 
 // Fail-fast startup validation of storage and production authentication configuration
 validateStorageConfig();
 validateAuthConfig();
 
-const server = app.listen(config.port, async () => {
+const server = app.listen(config.port, () => {
   console.log(
     `[SERVER RUNNING] Manglam Matrimony Backend active on port ${config.port} (${config.nodeEnv})`
   );
   console.log(`[HEALTH CHECK] http://localhost:${config.port}/api/health`);
-
-  try {
-    await seedMasterData();
-  } catch (seedErr) {
-    console.error("[AUTO-SEED ERROR] Failed to seed master data on startup:", seedErr);
-  }
 });
 
 process.on("SIGTERM", () => {
