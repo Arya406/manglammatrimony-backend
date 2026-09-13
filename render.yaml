@@ -14,7 +14,7 @@ services:
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: CLIENT_ORIGIN
-        value: https://manglammatrimony-frontend.vercel.app,http://localhost:3000
+        value: https://manglammatrimony.com,https://manglammatrimony-frontend.vercel.app,http://localhost:3000
       - key: JWT_EXPIRY
         value: 7d
       - key: OTP_EXPIRY_SECONDS
@@ -34,4 +34,8 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
         sync: false
