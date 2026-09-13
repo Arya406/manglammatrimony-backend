@@ -390,6 +390,15 @@ export async function main() {
     console.log("[INFO] Skipping mock user/profile creation (SEED_SAMPLE_PROFILES is not 'true').");
   }
 
+  if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+    try {
+      const { seedAdminAccount } = await import("../src/seeds/admin.seed");
+      await seedAdminAccount();
+    } catch (adminSeedErr) {
+      console.warn("[ADMIN SEED WARNING]:", adminSeedErr instanceof Error ? adminSeedErr.message : adminSeedErr);
+    }
+  }
+
   console.log("==================================================");
   console.log("DATABASE MASTER DATA SEED COMPLETED SUCCESSFULLY!");
   console.log("==================================================");

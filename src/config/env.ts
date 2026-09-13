@@ -7,6 +7,7 @@ export const config = {
   clientOrigins: (process.env.CLIENT_ORIGIN || "http://localhost:3000,http://localhost:3001,http://localhost:3002")
     .split(",")
     .map((origin) => origin.trim()),
+  frontendUrl: process.env.FRONTEND_URL || (process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.split(",")[0].trim() : "http://localhost:3000"),
   jwtSecret: process.env.JWT_SECRET || "manglam_matrimony_jwt_secret_dev_key_2026_secure",
   jwtExpiry: process.env.JWT_EXPIRY || "7d",
   otp: {
@@ -42,9 +43,9 @@ export const config = {
     process.env.NODE_ENV !== "production" &&
     process.env.DEV_DUMMY_OTP_ENABLED === "true",
   resend: {
-    apiKey: process.env.RESEND_API_KEY || "",
-    fromEmail: process.env.RESEND_FROM_EMAIL || "Manglam Matrimony <auth@manglammatrimony.com>",
-    fromName: process.env.RESEND_FROM_NAME || "Manglam Matrimony",
+    apiKey: (process.env.RESEND_API_KEY || "").trim(),
+    fromEmail: (process.env.RESEND_FROM_EMAIL || "Manglam Matrimony <auth@manglammatrimony.com>").trim(),
+    fromName: (process.env.RESEND_FROM_NAME || "Manglam Matrimony").trim(),
   },
 };
 

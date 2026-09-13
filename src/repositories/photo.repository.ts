@@ -18,6 +18,9 @@ export interface CreatePhotoInput {
   photoType: PhotoType;
   sortOrder: number;
   moderationStatus?: ModerationStatus;
+  moderationReason?: string | null;
+  moderatedAt?: Date | null;
+  moderatedByUserId?: string | null;
 }
 
 export class PhotoRepository {
@@ -89,6 +92,9 @@ export class PhotoRepository {
           height: input.height ?? null,
           photoType: input.photoType,
           moderationStatus: input.moderationStatus ?? ModerationStatus.APPROVED,
+          moderationReason: input.moderationReason ?? null,
+          moderatedAt: input.moderatedAt ?? null,
+          moderatedByUserId: input.moderatedByUserId ?? null,
           sortOrder: input.sortOrder,
         },
       });

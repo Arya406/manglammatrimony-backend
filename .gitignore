@@ -27,4 +27,5 @@ Thumbs.db
 # Scratch and analysis dumps
 master-data/
 scripts/*.json
+scratch/
 

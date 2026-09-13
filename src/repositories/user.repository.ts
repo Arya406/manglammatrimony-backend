@@ -10,6 +10,7 @@ function mapPrismaUserToUser(pUser: PrismaUser): User {
     phoneVerified: Boolean(pUser.phoneVerifiedAt),
     emailVerified: Boolean(pUser.emailVerifiedAt),
     status: pUser.status as UserStatus,
+    activationStatus: pUser.activationStatus,
     createdAt: pUser.createdAt,
     updatedAt: pUser.updatedAt,
   };

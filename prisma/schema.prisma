@@ -23,6 +23,16 @@ enum UserStatus {
   DELETED
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AccountActivationStatus {
+  PENDING_ACTIVATION
+  ACTIVE
+}
+
 enum ProfileCreatedFor {
   MYSELF
   MY_SON
@@ -104,9 +114,16 @@ model User {
   id               String      @id @default(uuid()) @map("id")
   phone            String?     @unique @map("phone")
   email            String?     @unique @map("email")
+  passwordHash     String?     @map("password_hash")
+  role             UserRole    @default(USER) @map("role")
   phoneVerifiedAt  DateTime?   @map("phone_verified_at")
   emailVerifiedAt  DateTime?   @map("email_verified_at")
   status           UserStatus  @default(ACTIVE) @map("status")
+  activationStatus AccountActivationStatus @default(ACTIVE) @map("activation_status")
+  statusChangedAt  DateTime?   @map("status_changed_at")
+  statusChangedByUserId String? @map("status_changed_by_user_id")
+  activatedAt      DateTime?   @map("activated_at")
+  activatedByUserId String?    @map("activated_by_user_id")
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
 
@@ -119,10 +136,22 @@ model User {
   sentMessages              Message[]                  @relation("SentMessages")
   notifications             Notification[]
   favouritesSent            ProfileFavourite[]         @relation("UserFavourites")
+  moderatedPhotos           ProfilePhoto[]             @relation("ModeratedPhotos")
+  statusChangedByUser       User?                      @relation("UserStatusChanges", fields: [statusChangedByUserId], references: [id], onDelete: SetNull)
+  statusChangedUsers        User[]                     @relation("UserStatusChanges")
+  activatedByUser           User?                      @relation("UserActivations", fields: [activatedByUserId], references: [id], onDelete: SetNull)
+  activatedUsers            User[]                     @relation("UserActivations")
+  editedProfiles            Profile[]                  @relation("ProfileAdminEdits")
 
   @@index([phone])
   @@index([email])
   @@index([status])
+  @@index([role])
+  @@index([activationStatus])
+  @@index([statusChangedAt])
+  @@index([statusChangedByUserId])
+  @@index([activatedAt])
+  @@index([activatedByUserId])
   @@map("users")
 }
 
@@ -136,10 +165,13 @@ model Profile {
   submittedAt           DateTime?          @map("submitted_at")
   reviewedAt            DateTime?          @map("reviewed_at")
   rejectionReason       String?            @map("rejection_reason")
+  lastEditedAt          DateTime?          @map("last_edited_at")
+  lastEditedByUserId    String?            @map("last_edited_by_user_id")
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
 
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastEditedByUser      User?              @relation("ProfileAdminEdits", fields: [lastEditedByUserId], references: [id], onDelete: SetNull)
   personalDetails       ProfilePersonalDetails?
   religion              ProfileReligion?
   education             ProfileEducation?
@@ -153,6 +185,8 @@ model Profile {
   @@index([profileStatus])
   @@index([profileCreatedFor])
   @@index([profileStatus, completionPercentage])
+  @@index([lastEditedAt])
+  @@index([lastEditedByUserId])
   @@map("profiles")
 }
 
@@ -288,16 +322,21 @@ model ProfilePhoto {
   photoType         PhotoType         @map("photo_type")
   moderationStatus  ModerationStatus  @default(PENDING) @map("moderation_status")
   moderationReason  String?           @map("moderation_reason")
+  moderatedAt       DateTime?         @map("moderated_at")
+  moderatedByUserId String?           @map("moderated_by_user_id")
   sortOrder         Int               @default(0) @map("sort_order")
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
   profile           Profile           @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  moderatedByUser   User?             @relation("ModeratedPhotos", fields: [moderatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([profileId])
   @@index([moderationStatus])
   @@index([photoType])
   @@index([profileId, moderationStatus, sortOrder])
+  @@index([moderatedAt])
+  @@index([moderatedByUserId])
   @@map("profile_photos")
 }
 

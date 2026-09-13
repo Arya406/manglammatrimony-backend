@@ -121,3 +121,42 @@ export function apiRateLimiter(
 
   next();
 }
+
+export function adminLoginRateLimiter(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  // In non-production modes, allow automated integration testing without blockage
+  if (config.nodeEnv !== "production") {
+    return next();
+  }
+
+  const clientIp =
+    req.ip ||
+    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown_ip";
+  const email = (req.body?.email || "").toLowerCase().trim();
+  const key = `admin_login:${clientIp}:${email}`;
+
+  // Allow max 5 login attempts per 15 minutes per IP/email in production
+  const { allowed, retryAfterSeconds } = rateLimiter.checkLimit(
+    key,
+    5,
+    15 * 60 * 1000
+  );
+
+  if (!allowed) {
+    res.setHeader("Retry-After", String(retryAfterSeconds));
+    res.status(429).json({
+      success: false,
+      code: "RATE_LIMIT_EXCEEDED",
+      message: "Too many login attempts. Please wait a few minutes before trying again.",
+    });
+    return;
+  }
+
+  next();
+}
+

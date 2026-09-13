@@ -9,6 +9,7 @@ export interface User {
   phoneVerified: boolean;
   emailVerified: boolean;
   status: UserStatus;
+  activationStatus?: "PENDING_ACTIVATION" | "ACTIVE";
   createdAt: Date;
   updatedAt: Date;
 }

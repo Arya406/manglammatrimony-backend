@@ -110,6 +110,7 @@ export class AuthController {
           return;
         }
         if (
+          result.code === "ACCOUNT_PENDING_ACTIVATION" ||
           result.code === "ACCOUNT_SUSPENDED" ||
           result.code === "ACCOUNT_BLOCKED" ||
           result.code === "ACCOUNT_DELETED"
@@ -147,6 +148,7 @@ export class AuthController {
           return;
         }
         if (
+          result.code === "ACCOUNT_PENDING_ACTIVATION" ||
           result.code === "ACCOUNT_SUSPENDED" ||
           result.code === "ACCOUNT_BLOCKED" ||
           result.code === "ACCOUNT_DELETED"
@@ -210,6 +212,118 @@ export class AuthController {
         success: false,
         code: "INTERNAL_SERVER_ERROR",
         message: "Something went wrong while resending your code. Please try again.",
+      });
+    }
+  };
+
+  requestActivationOtp = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string" || !email.trim()) {
+        res.status(400).json({
+          success: false,
+          code: "EMAIL_REQUIRED",
+          message: "A valid email address is required.",
+        });
+        return;
+      }
+
+      const result = await this.auth.requestActivationOtp(email);
+
+      if (!result.success) {
+        if (result.code === "OTP_COOLDOWN") {
+          res.status(429).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_ALREADY_ACTIVATED") {
+          res.status(409).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_SUSPENDED" || result.code === "ACCOUNT_BLOCKED") {
+          res.status(403).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_DELETED") {
+          res.status(409).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_NOT_FOUND") {
+          res.status(404).json(result);
+          return;
+        }
+        if (result.code === "EMAIL_SEND_FAILED") {
+          res.status(502).json(result);
+          return;
+        }
+        res.status(400).json(result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error("[AUTH CONTROLLER ERROR - requestActivationOtp]:", error);
+      res.status(500).json({
+        success: false,
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Something went wrong while requesting your activation code.",
+      });
+    }
+  };
+
+  verifyActivationOtp = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { verificationId, email, otp } = req.body;
+      if (!otp || typeof otp !== "string" || otp.trim().length !== 6) {
+        res.status(400).json({
+          success: false,
+          code: "INVALID_OTP",
+          message: "A valid 6-digit verification code is required.",
+        });
+        return;
+      }
+
+      const result = await this.auth.verifyActivationOtp({
+        verificationId,
+        email,
+        otp,
+      });
+
+      if (!result.success) {
+        if (result.code === "OTP_EXPIRED") {
+          res.status(410).json(result);
+          return;
+        }
+        if (result.code === "OTP_MAX_ATTEMPTS") {
+          res.status(429).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_SUSPENDED" || result.code === "ACCOUNT_BLOCKED") {
+          res.status(403).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_DELETED") {
+          res.status(409).json(result);
+          return;
+        }
+        if (result.code === "ACCOUNT_ALREADY_ACTIVATED") {
+          res.status(409).json(result);
+          return;
+        }
+        if (result.code === "USER_NOT_FOUND") {
+          res.status(404).json(result);
+          return;
+        }
+        res.status(400).json(result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error("[AUTH CONTROLLER ERROR - verifyActivationOtp]:", error);
+      res.status(500).json({
+        success: false,
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Something went wrong while verifying your activation code.",
       });
     }
   };

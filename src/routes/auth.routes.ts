@@ -50,3 +50,16 @@ authRouter.post(
   otpRequestRateLimiter,
   authController.resendLoginOtp
 );
+
+// Account Activation Endpoints (Public)
+authRouter.post(
+  "/activation/request-otp",
+  otpRequestRateLimiter,
+  authController.requestActivationOtp
+);
+
+authRouter.post(
+  "/activation/verify-otp",
+  authController.verifyActivationOtp
+);
+

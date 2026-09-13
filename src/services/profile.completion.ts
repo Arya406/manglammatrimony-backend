@@ -114,3 +114,70 @@ export function calculateProfileCompletion(
 
   return Math.min(100, Math.max(0, score));
 }
+
+import { ProfileCompletenessCheckResult } from "../types/profile";
+
+/**
+ * Authoritative completeness check verifying all mandatory sections and photo requirements
+ * for matrimonial profile submission or administrative publication.
+ */
+export function validateProfileCompleteness(profileState: any): ProfileCompletenessCheckResult {
+  const missingSections: string[] = [];
+
+  // 1. Personal Details
+  const pd = profileState?.personalDetails;
+  if (
+    !pd ||
+    !pd.firstName ||
+    !pd.lastName ||
+    !pd.gender ||
+    !pd.dateOfBirth ||
+    !pd.maritalStatus ||
+    !pd.heightCm ||
+    !pd.motherTongueId
+  ) {
+    missingSections.push("PERSONAL_DETAILS");
+  }
+
+  // 2. Religion & Community
+  const rel = profileState?.religion;
+  if (!rel || !rel.religionId || !rel.manglik) {
+    missingSections.push("RELIGION");
+  }
+
+  // 3. Education
+  const edu = profileState?.education;
+  if (!edu || !edu.educationId) {
+    missingSections.push("EDUCATION");
+  }
+
+  // 4. Career
+  const car = profileState?.career;
+  if (!car || !car.employmentStatusId) {
+    missingSections.push("CAREER");
+  }
+
+  // 5. Photos
+  const photos = profileState?.photos || [];
+  if (photos.length === 0) {
+    missingSections.push("PHOTOS");
+  }
+
+  // 6. Partner Preferences
+  const pref = profileState?.partnerPreference;
+  if (!pref || !pref.id) {
+    missingSections.push("PARTNER_PREFERENCES");
+  }
+
+  const approvedPhotos = photos.filter(
+    (p: any) => p.moderationStatus === "APPROVED"
+  );
+
+  return {
+    isComplete: missingSections.length === 0,
+    missingSections,
+    hasApprovedPhoto: approvedPhotos.length > 0,
+    photoCount: photos.length,
+    approvedPhotoCount: approvedPhotos.length,
+  };
+}

@@ -4,7 +4,10 @@ import {
   PhotoType,
   ModerationStatus,
   ProfileStatus,
+  UserRole,
+  UserStatus,
 } from "@prisma/client";
+import { prisma } from "../config/database";
 import { config } from "../config/env";
 import { photoRepository, PhotoRepository } from "../repositories/photo.repository";
 import { profileRepository, ProfileRepository } from "../repositories/profile.repository";
@@ -564,6 +567,280 @@ export class PhotoService {
       data: {
         photoId: updated!.id,
         moderationStatus: ModerationStatus.APPROVED,
+      },
+    };
+  }
+
+  /**
+   * Dedicated administrative photo upload.
+   * Allows an authenticated ADMIN to upload photos directly to an existing user's profile.
+   * Enforces role, profile presence, file safety, photo limit, automatic APPROVED moderation,
+   * admin audit attribution, and profile completion recalculation.
+   */
+  async adminUploadPhoto(
+    adminUserId: string,
+    targetUserId: string,
+    file?: Express.Multer.File,
+    requestedPhotoType?: PhotoType
+  ): Promise<{
+    success: boolean;
+    status: number;
+    code?: string;
+    message: string;
+    data?: {
+      photo: PhotoResponseDto & {
+        isPrimary: boolean;
+        moderatedAt?: Date | null;
+        moderatedByUserId?: string | null;
+      };
+      profile?: {
+        completionPercentage: number;
+        profileStatus: ProfileStatus;
+      };
+    };
+  }> {
+    if (!adminUserId) {
+      return {
+        success: false,
+        status: 401,
+        code: "UNAUTHORIZED",
+        message: "Administrative authentication required.",
+      };
+    }
+
+    if (!targetUserId || !targetUserId.trim()) {
+      return {
+        success: false,
+        status: 400,
+        code: "INVALID_USER_ID",
+        message: "Target user ID parameter is required.",
+      };
+    }
+
+    // 1. Locate target user and their profile
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId.trim() },
+      include: { profile: true },
+    });
+
+    if (!targetUser) {
+      return {
+        success: false,
+        status: 404,
+        code: "USER_NOT_FOUND",
+        message: "Target user account not found.",
+      };
+    }
+
+    // 2. Reject admin targets
+    if (targetUser.role === UserRole.ADMIN) {
+      return {
+        success: false,
+        status: 403,
+        code: "FORBIDDEN",
+        message: "Administrative accounts cannot have photos added through user photo management.",
+      };
+    }
+
+    // 3. Validate target user has a profile
+    if (!targetUser.profile) {
+      return {
+        success: false,
+        status: 404,
+        code: "PROFILE_NOT_FOUND",
+        message: "No matrimonial profile found for this user account.",
+      };
+    }
+
+    // 4. Reject deleted accounts
+    if (targetUser.status === UserStatus.DELETED) {
+      return {
+        success: false,
+        status: 400,
+        code: "ACCOUNT_DELETED",
+        message: "Cannot upload photos for a deleted user account.",
+      };
+    }
+
+    // 5. Validate file existence
+    if (!file || !file.buffer || file.buffer.length === 0) {
+      return {
+        success: false,
+        status: 400,
+        code: "INVALID_FILE",
+        message: "No photo file provided for upload.",
+      };
+    }
+
+    // 6. Validate file size pre-check
+    const maxSizeBytes = config.photo.maxSizeMb * 1024 * 1024;
+    if (file.size > maxSizeBytes || file.buffer.length > maxSizeBytes) {
+      return {
+        success: false,
+        status: 400,
+        code: "FILE_TOO_LARGE",
+        message: `Photo size exceeds maximum allowed limit of ${config.photo.maxSizeMb} MB.`,
+      };
+    }
+
+    // 7. Process, decode, auto-orient EXIF, strip metadata, and normalize to canonical WebP
+    let processed: ProcessedImageResult;
+    try {
+      processed = await this.imageProcessor.processProfileImage(
+        file.buffer,
+        file.originalname
+      );
+    } catch (err: any) {
+      if (err instanceof ImageProcessingError) {
+        return {
+          success: false,
+          status: err.statusCode || 400,
+          code: err.code as PhotoErrorCode,
+          message: err.message,
+        };
+      }
+      console.error("[IMAGE PROCESSING UNEXPECTED ERROR]:", err);
+      return {
+        success: false,
+        status: 500,
+        code: "IMAGE_PROCESSING_FAILED",
+        message: "We couldn't process this photo. Please try another image.",
+      };
+    }
+
+    // 8. Validate photo count limit
+    const profile = targetUser.profile;
+    const currentCount = await this.photos.countPhotosByProfileId(profile.id);
+    if (currentCount >= config.photo.maxCount) {
+      return {
+        success: false,
+        status: 409,
+        code: "PHOTO_LIMIT_REACHED",
+        message: `This profile has reached the maximum allowed limit of ${config.photo.maxCount} photos.`,
+      };
+    }
+
+    // 9. Determine PhotoType (First photo becomes PRIMARY; subsequent photos default to ADDITIONAL)
+    let targetPhotoType: PhotoType = PhotoType.ADDITIONAL;
+    if (currentCount === 0 || requestedPhotoType === PhotoType.PRIMARY) {
+      targetPhotoType = PhotoType.PRIMARY;
+    }
+
+    const photoId = `pho_${crypto.randomBytes(12).toString("hex")}`;
+
+    // 10. Upload canonical normalized derivative to storage provider
+    let storedMetadata;
+    let actualStorageProvider = config.photo.storageProvider;
+    try {
+      storedMetadata = await this.storage.upload(processed.buffer, {
+        profileId: profile.id,
+        photoId,
+        originalFileName: file.originalname || "photo",
+        mimeType: processed.mimeType,
+      });
+    } catch (storageError) {
+      console.error("[STORAGE UPLOAD ERROR]:", storageError);
+      if (this.storage !== defaultStorageProvider) {
+        try {
+          console.warn("[STORAGE FALLBACK]: Falling back to local storage provider...");
+          storedMetadata = await defaultStorageProvider.upload(processed.buffer, {
+            profileId: profile.id,
+            photoId,
+            originalFileName: file.originalname || "photo",
+            mimeType: processed.mimeType,
+          });
+          actualStorageProvider = "local";
+        } catch (fallbackError) {
+          console.error("[STORAGE FALLBACK ERROR]:", fallbackError);
+          return {
+            success: false,
+            status: 500,
+            code: "STORAGE_ERROR",
+            message: "Failed to securely store image file. Please try again.",
+          };
+        }
+      } else {
+        return {
+          success: false,
+          status: 500,
+          code: "STORAGE_ERROR",
+          message: "Failed to securely store image file. Please try again.",
+        };
+      }
+    }
+
+    // 11. Save metadata in database with admin audit and auto-approved moderation status
+    const now = new Date();
+    let createdPhoto: ProfilePhoto;
+    try {
+      createdPhoto = await this.photos.createPhoto({
+        profileId: profile.id,
+        storageKey: storedMetadata.storageKey,
+        storageProvider: actualStorageProvider,
+        originalFileName: file.originalname || "photo",
+        mimeType: processed.mimeType,
+        fileSize: processed.fileSize,
+        width: processed.width,
+        height: processed.height,
+        photoType: targetPhotoType,
+        sortOrder: currentCount,
+        moderationStatus: ModerationStatus.APPROVED,
+        moderationReason: "Uploaded and approved by administrator",
+        moderatedAt: now,
+        moderatedByUserId: adminUserId,
+      });
+    } catch (dbError) {
+      console.error("[DATABASE PHOTO CREATION ERROR]:", dbError);
+      // Clean up orphaned storage file immediately
+      const activeProvider =
+        actualStorageProvider === config.photo.storageProvider
+          ? this.storage
+          : actualStorageProvider === "local"
+          ? defaultStorageProvider
+          : getStorageProvider(actualStorageProvider);
+      await activeProvider.delete(storedMetadata.storageKey).catch((e: unknown) =>
+        console.warn("[CLEANUP WARNING]:", e)
+      );
+      return {
+        success: false,
+        status: 500,
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to record photo metadata. Please try again.",
+      };
+    }
+
+    // 12. Recalculate profile completion percentage authoritatively
+    const completeData = await this.profiles.getCompleteProfile(targetUser.id);
+    const newCompletion = calculateProfileCompletion({
+      profileCreatedFor: completeData?.profileCreatedFor,
+      personalDetails: completeData?.personalDetails,
+      languages: completeData?.languages,
+      religion: completeData?.religion,
+      education: completeData?.education,
+      career: completeData?.career,
+      photos: completeData?.photos,
+      partnerPreference: completeData?.partnerPreference,
+    });
+
+    await this.profiles.updateCompletionPercentage(profile.id, newCompletion);
+
+    const photoDto = this.mapToResponseDto(createdPhoto);
+
+    return {
+      success: true,
+      status: 200,
+      message: "Photo uploaded and approved successfully.",
+      data: {
+        photo: {
+          ...photoDto,
+          isPrimary: createdPhoto.photoType === PhotoType.PRIMARY,
+          moderatedAt: createdPhoto.moderatedAt,
+          moderatedByUserId: createdPhoto.moderatedByUserId,
+        },
+        profile: {
+          completionPercentage: newCompletion,
+          profileStatus: profile.profileStatus,
+        },
       },
     };
   }

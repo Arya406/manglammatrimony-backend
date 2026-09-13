@@ -11,6 +11,7 @@ import { messageRequestRouter } from "./routes/message-request.routes";
 import { conversationRouter } from "./routes/conversation.routes";
 import { notificationRouter } from "./routes/notification.routes";
 import { matchesRouter } from "./routes/matches.routes";
+import { adminRouter } from "./routes/admin.routes";
 
 export const app = express();
 
@@ -39,7 +40,7 @@ const corsOptions: cors.CorsOptions = {
         (allowed) => allowed === "*" || allowed.replace(/\/+$/, "") === normalizedOrigin
       ) ||
       /^https:\/\/.*\.vercel\.app$/.test(normalizedOrigin) ||
-      /^http:\/\/localhost(:\d+)?$/.test(normalizedOrigin);
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin);
 
     if (isAllowed) {
       return callback(null, true);
@@ -98,6 +99,9 @@ app.use("/api/notifications", notificationRouter);
 
 // Discovery Matches Routes
 app.use("/api/matches", matchesRouter);
+
+// Platform Administration Routes
+app.use("/api/admin", adminRouter);
 
 // 404 Handler
 app.use((_req: Request, res: Response) => {

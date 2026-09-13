@@ -28,7 +28,7 @@ import {
   PublicProfileDto,
 } from "../types/profile";
 import { ApiResponse } from "../types/auth";
-import { calculateProfileCompletion } from "./profile.completion";
+import { calculateProfileCompletion, validateProfileCompleteness } from "./profile.completion";
 
 export class ProfileService {
   constructor(
@@ -821,64 +821,7 @@ export class ProfileService {
    * Validates internal database completeness and photo moderation status for profile submission.
    */
   private validateProfileCompleteness(profileState: any): ProfileCompletenessCheckResult {
-    const missingSections: string[] = [];
-
-    // 1. Personal Details
-    const pd = profileState.personalDetails;
-    if (
-      !pd ||
-      !pd.firstName ||
-      !pd.lastName ||
-      !pd.gender ||
-      !pd.dateOfBirth ||
-      !pd.maritalStatus ||
-      !pd.heightCm ||
-      !pd.motherTongueId
-    ) {
-      missingSections.push("PERSONAL_DETAILS");
-    }
-
-    // 2. Religion & Community
-    const rel = profileState.religion;
-    if (!rel || !rel.religionId || !rel.manglik) {
-      missingSections.push("RELIGION");
-    }
-
-    // 3. Education
-    const edu = profileState.education;
-    if (!edu || !edu.educationId) {
-      missingSections.push("EDUCATION");
-    }
-
-    // 4. Career
-    const car = profileState.career;
-    if (!car || !car.employmentStatusId) {
-      missingSections.push("CAREER");
-    }
-
-    // 5. Photos
-    const photos = profileState.photos || [];
-    if (photos.length === 0) {
-      missingSections.push("PHOTOS");
-    }
-
-    // 6. Partner Preferences
-    const pref = profileState.partnerPreference;
-    if (!pref || !pref.id) {
-      missingSections.push("PARTNER_PREFERENCES");
-    }
-
-    const approvedPhotos = photos.filter(
-      (p: any) => p.moderationStatus === "APPROVED"
-    );
-
-    return {
-      isComplete: missingSections.length === 0,
-      missingSections,
-      hasApprovedPhoto: approvedPhotos.length > 0,
-      photoCount: photos.length,
-      approvedPhotoCount: approvedPhotos.length,
-    };
+    return validateProfileCompleteness(profileState);
   }
 
   /**
