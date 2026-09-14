@@ -10,7 +10,7 @@
     "lint": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
+    "db:deploy": "node scripts/deploy-migrations.js",
     "db:seed": "tsx prisma/seed.ts",
     "admin:bootstrap": "tsx scripts/seed-admin.ts",
     "photos:migrate:r2": "tsx scripts/migrate-local-photos-to-r2.ts"
